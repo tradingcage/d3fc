@@ -7,6 +7,32 @@
   flex: 4;
 }
 
+#ohlc-chart .x-axis {
+  display: none;
+}
+
+.cartesian-chart .top-label {
+  display: none;
+}
+
+d3fc-group.cartesian-chart {
+  display: grid;
+  display: -ms-grid;
+  grid-template-columns: minmax(0em,max-content) 0fr 1fr 0fr minmax(0em,max-content);
+  -ms-grid-columns: minmax(0em,max-content) 0fr 1fr 0fr minmax(0em,max-content);
+  grid-template-rows: minmax(0em,max-content) 0fr 1fr 0fr minmax(0em,max-content);
+  -ms-grid-rows: minmax(0em,max-content) 0fr 1fr 0fr minmax(0em,max-content);
+}
+
 #volume-chart {
   flex: 1;
+}
+
+g.annotation-line > line {
+  stroke-opacity: .8;
+  stroke-dasharray: 4;
+}
+
+#info-box {
+  position: absolute;
 }

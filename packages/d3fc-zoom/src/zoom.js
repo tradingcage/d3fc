@@ -23,7 +23,8 @@ const symbol = Symbol('d3fc-domain-zoom');
 export default () => {
     const dispatcher = dispatch('zoom');
 
-    const zoomer = zoom().on('zoom', function({ transform }) {
+    const zoomer = zoom().on('zoom', function(e) {
+        const { transform } = e;
         const node = this;
         let updatedTransform = transform;
         let {
@@ -35,14 +36,17 @@ export default () => {
             yScale,
             previousTransform
         } = node[symbol];
-        if (
-            !domainsEqual(previousXScale, xScale) ||
-            !domainsEqual(previousYScale, yScale)
-        ) {
-            originalXScale = xScale?.copy();
-            originalYScale = yScale?.copy();
-            updatedTransform = subtract(transform, previousTransform);
-        }
+        // DISABLED BY LINCOLN
+        // I change the domain in the zoom event in the stock chart
+        // and this code makes it not work, so it's commented out for now
+        // if (
+        //     !domainsEqual(previousXScale, xScale) ||
+        //     !domainsEqual(previousYScale, yScale)
+        // ) {
+        //     originalXScale = xScale?.copy();
+        //     originalYScale = yScale?.copy();
+        //     updatedTransform = subtract(transform, previousTransform);
+        // }
         if (xScale != null) {
             previousXScale = updatedTransform.rescaleX(
                 originalXScale.range(xScale.range())
@@ -68,7 +72,7 @@ export default () => {
         if (updatedTransform !== transform) {
             zoomer.transform(select(node), updatedTransform);
         }
-        dispatcher.call('zoom');
+        dispatcher.call('zoom', this, e);
     });
 
     const instance = (selection, xScale = null, yScale = null) => {
@@ -116,7 +120,8 @@ export default () => {
         'tapDistance',
         'duration',
         'interpolate',
-        'scaleExtent'
+        'scaleExtent',
+        'translateExtent'
     );
 
     return instance;
