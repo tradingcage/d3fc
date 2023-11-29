@@ -1,16 +1,5 @@
-#chart-container {
-  display: flex;
-  flex-direction: column;
-}
-
-#ohlc-chart {
-  flex: 4;
-}
-
-#volume-chart {
-  flex: 1;
-}
-
-#info-box {
-  position: absolute;
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
