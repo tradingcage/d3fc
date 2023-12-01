@@ -14,13 +14,13 @@ const chartContainer = "chart-container";
 
 const indicators = [
   {
-    name: "plot close",
+    name: "SMA 20",
     options: {
       type: "line",
       color: "#1111AA",
     },
     fn: (bar) => {
-      return sma(bar, 20, "close");
+      return round2(sma(bar, 20, "close"));
     },
   },
 ];
@@ -40,6 +40,8 @@ function hexToRgba(hex) {
 function round2(num) {
   return Math.round(num * 100) / 100;
 }
+
+const transparent = [0, 0, 0, 0];
 
 // Supply some utility functions for indicators
 
@@ -72,6 +74,35 @@ function createWrappedDatum(datum, index, arr) {
 }
 
 const data = userProvidedData.map((datum, index, arr) => createWrappedDatum(datum, index, arr));
+
+// Define stateful objects and their member functions
+
+const state = {
+  currentBar: null,
+  volumeVisible: true,
+};
+
+const priceChangeCallbacks = [];
+
+priceChangeCallbacks.push(bar => state.currentBar = bar);
+
+const mousePos = { x: -1, y: -1 }
+
+// Now for some style helper functions
+
+const setFillColor = (opacity) => {
+  return (program, data) => {
+    fc.webglFillColor()
+      .value(d => {
+        if (d.close >= d.open) {
+          return [...options.colors.bull, opacity];
+        } else {
+          return [...options.colors.bear, opacity];
+        }
+      })
+      .data(data)(program)
+  };
+};
 
 // Then we manually create the HTML elements we will need
 
@@ -106,8 +137,14 @@ const ohlcvElements = {
   high: document.createElement("span"),
   low: document.createElement("span"),
   close: document.createElement("span"),
-  volume: document.createElement("span"),
 };
+
+priceChangeCallbacks.push(bar => {
+  ohlcvElements.open.innerHTML = round2(bar.open);
+  ohlcvElements.high.innerHTML = round2(bar.high);
+  ohlcvElements.low.innerHTML = round2(bar.low);
+  ohlcvElements.close.innerHTML = round2(bar.close);
+});
 
 const openLabel = document.createElement("span");
 openLabel.innerHTML = "O: ";
@@ -122,7 +159,6 @@ ohlcvElements.open.style.fontWeight = "bold";
 ohlcvElements.high.style.fontWeight = "bold";
 ohlcvElements.low.style.fontWeight = "bold";
 ohlcvElements.close.style.fontWeight = "bold";
-ohlcvElements.volume.style.fontWeight = "bold";
 
 ohlcBoxElem.appendChild(openLabel);
 ohlcBoxElem.appendChild(ohlcvElements.open);
@@ -134,65 +170,56 @@ ohlcBoxElem.appendChild(closeLabel);
 ohlcBoxElem.appendChild(ohlcvElements.close);
 infoBoxElem.appendChild(ohlcBoxElem);
 
-const volumeBoxElem = document.createElement("div")
-volumeBoxElem.style.width = "fit-content";
-volumeBoxElem.style.cursor = "pointer";
-volumeBoxElem.style.marginTop = "0.2em";
+infoBoxItems = [];
 
-const volumeLabel = document.createElement("span");
-volumeLabel.innerHTML = "Volume: ";
+function addToInfoBox(label, visibilityToggleFn, valueFn) {
+  const newItemElem = document.createElement("div")
+  newItemElem.style.width = "fit-content";
+  newItemElem.style.cursor = "pointer";
+  newItemElem.style.marginTop = "0.2em";
 
-volumeBoxElem.appendChild(volumeLabel);
-volumeBoxElem.appendChild(ohlcvElements.volume);
-infoBoxElem.appendChild(volumeBoxElem);
+  const newItemLabel = document.createElement("span");
+  newItemLabel.innerHTML = label + ": ";
 
-// Define stateful objects and their member functions
+  newItemElem.appendChild(newItemLabel);
 
-const state = {
-  currentBar: null,
-  volumeVisible: true,
-};
+  const valueElem = document.createElement("span");
+  valueElem.style.fontWeight = "bold";
+  newItemElem.appendChild(valueElem);
 
-function toggleVolumeVisible() {
-  state.volumeVisible = !state.volumeVisible;
-  if (!state.volumeVisible) {
-    volumeBoxElem.style.opacity = 0.5;
-  } else {
-    volumeBoxElem.style.opacity = 1;
-  }
-  render();
+  infoBoxElem.appendChild(newItemElem);
+
+  let toggled = true;
+
+  newItemElem.addEventListener("click", () => {
+    visibilityToggleFn();
+    toggled = !toggled;
+    if (!toggled) {
+      newItemElem.style.opacity = 0.5;
+    } else {
+      newItemElem.style.opacity = 1;
+    }
+    render();
+  });
+
+  infoBoxItems.push({
+    onValueChange: (bar) => {
+      const value = valueFn(bar);
+      if (isNaN(value)) {
+        valueElem.innerHTML = "...";
+      } else {
+        valueElem.innerHTML = "" + valueFn(bar);
+      }
+    },
+  });
 }
 
-volumeBoxElem.addEventListener("click", toggleVolumeVisible);
+priceChangeCallbacks.push(bar => infoBoxItems.forEach(i => i.onValueChange(bar)));
 
-function updateCurrentPrices(bar) {
-  state.currentBar = bar;
-  ohlcvElements.open.innerHTML = round2(bar.open);
-  ohlcvElements.high.innerHTML = round2(bar.high);
-  ohlcvElements.low.innerHTML = round2(bar.low);
-  ohlcvElements.close.innerHTML = round2(bar.close);
-  ohlcvElements.volume.innerHTML = round2(bar.volume);
-}
-
-updateCurrentPrices(data[data.length - 1]);
-
-const mousePos = { x: -1, y: -1 }
-
-// Now for some style helper functions
-
-const setFillColor = (opacity) => {
-  return (program, data) => {
-    fc.webglFillColor()
-      .value(d => {
-        if (d.close >= d.open) {
-          return [...options.colors.bull, opacity];
-        } else {
-          return [...options.colors.bear, opacity];
-        }
-      })
-      .data(data)(program)
-  };
-};
+addToInfoBox(
+  "Volume",
+  () => state.volumeVisible = !state.volumeVisible,
+  (bar) => round2(bar.volume));
 
 // Here is some hacky CSS to make the OHLC and Volume chart stick so closely to each other
 function specialgrid(sel) {
@@ -257,7 +284,7 @@ indicators.forEach((indicator) => {
   // Call the function to get the values, write them back to the indicator
   // Create the object that will use the values
   // Make sure the crosshair updates the right values in the infobox
-  const { options, fn } = indicator;
+  const { name, options, fn } = indicator;
   const state = {
     enabled: true,
     chartObjects: {},
@@ -276,11 +303,18 @@ indicators.forEach((indicator) => {
   }
 
   indicator.state = state;
+
+  addToInfoBox(name, () => {
+    state.enabled = !state.enabled;
+    if (!state.enabled) {
+      state.chartObjects.line.mainValue(_ => undefined);
+    } else {
+      state.chartObjects.line.mainValue(fn);
+    }
+  }, (bar) => fn(bar));
 });
 
 const indicatorObjects = indicators.map(({ state }) => Object.values(state.chartObjects)).flat();
-
-// updateInfoBox(indicators);
 
 // Define the base charts
 
@@ -425,7 +459,7 @@ function updateCrosshair() {
     snapMouseToOHLC(nearest);
   }
 
-  updateCurrentPrices(nearest);
+  priceChangeCallbacks.forEach(fn => fn(nearest));
 
   renderCrosshair();
 }
@@ -541,6 +575,8 @@ d3.select('#ohlc-chart')
   });
 
 // To close it out, define the charts and render them
+
+priceChangeCallbacks.forEach(fn => fn(data[data.length - 1]));
 
 function render() {
   d3.select('#ohlc-chart')
