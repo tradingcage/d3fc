@@ -8,13 +8,72 @@ const options = {
   scaleExtent: [.2, 5],
 };
 
-const data = fc.randomFinancial()(100);
+const userProvidedData = fc.randomFinancial()(100);
 
 const chartContainer = "chart-container";
 
+const indicators = [
+  {
+    name: "plot close",
+    options: {
+      type: "line",
+      color: "#1111AA",
+    },
+    fn: (bar) => {
+      return sma(bar, 20, "close");
+    },
+  },
+];
+
 // Library code
 
-// First we manually create the HTML elements we will need
+// Misc helpers first
+
+function hexToRgba(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const a = 1; // alpha value is 1 for full opacity
+  return [r, g, b, a];
+}
+
+function round2(num) {
+  return Math.round(num * 100) / 100;
+}
+
+// Supply some utility functions for indicators
+
+function sma(bar, length, accessor) {
+  let sum = 0;
+  for (var i = 0; i < length; i++) {
+    if (bar[i][accessor] == null) {
+      return;
+    }
+    sum += bar[i][accessor];
+  }
+  return sum / length;
+}
+
+// Transform the data into our special objects so that it can be more useful for creating indicators
+
+function createWrappedDatum(datum, index, arr) {
+  return new Proxy(datum, {
+    get(target, prop) {
+      if (typeof prop === 'string' && !isNaN(prop)) {
+        const value = arr[index - Number(prop)];
+        if (value == null) {
+          return {};
+        }
+        return value;
+      }
+      return target[prop];
+    }
+  });
+}
+
+const data = userProvidedData.map((datum, index, arr) => createWrappedDatum(datum, index, arr));
+
+// Then we manually create the HTML elements we will need
 
 const container = document.getElementById(chartContainer);
 container.style.display = "flex";
@@ -119,12 +178,6 @@ updateCurrentPrices(data[data.length - 1]);
 
 const mousePos = { x: -1, y: -1 }
 
-// Quick helper function
-
-function round2(num) {
-  return Math.round(num * 100) / 100;
-}
-
 // Now for some style helper functions
 
 const setFillColor = (opacity) => {
@@ -195,6 +248,40 @@ const zoom = fc
     render();
   });
 
+
+// Define the indicators
+
+indicators.forEach((indicator) => {
+  // Add name to the infobox with ability to toggle
+  // Use options to determine how to call the function
+  // Call the function to get the values, write them back to the indicator
+  // Create the object that will use the values
+  // Make sure the crosshair updates the right values in the infobox
+  const { options, fn } = indicator;
+  const state = {
+    enabled: true,
+    chartObjects: {},
+    values: [],
+  };
+
+  if (options.type === "line") {
+    const line = fc
+      .seriesWebglLine()
+      .xScale(xScale)
+      .yScale(yScale)
+      .crossValue(d => d.date)
+      .mainValue(fn)
+      .decorate(fc.webglStrokeColor(hexToRgba(options.color)));
+    state.chartObjects.line = line;
+  }
+
+  indicator.state = state;
+});
+
+const indicatorObjects = indicators.map(({ state }) => Object.values(state.chartObjects)).flat();
+
+// updateInfoBox(indicators);
+
 // Define the base charts
 
 const candlestick = fc.autoBandwidth(fc.seriesWebglCandlestick())
@@ -209,11 +296,17 @@ const volumeScale = d3.scaleLinear().domain([minVolume / 1.3, maxVolume]);
 const volume = fc.autoBandwidth(fc.seriesWebglBar())
   .crossValue(d => d.date)
   .mainValue(d => d.volume)
-  .decorate(setFillColor(0.8))
+  .decorate(setFillColor(0.8));
+
+const webglMulti = fc.seriesWebglMulti();
+webglMulti
+  .xScale(xScale)
+  .yScale(yScale)
+  .series([candlestick, ...indicatorObjects]);
 
 const ohlcChart = fc
   .chartCartesian(xScale, yScale)
-  .webglPlotArea(candlestick)
+  .webglPlotArea(webglMulti)
   .svgPlotArea(lowLine)
   .decorate(sel => {
     sel.enter().call(specialgrid);
