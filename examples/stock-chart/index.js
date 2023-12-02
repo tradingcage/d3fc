@@ -14,13 +14,14 @@ const chartContainer = "chart-container";
 
 const indicators = [
   {
-    name: "SMA 20",
+    name: (i) => `Simple Moving Average (${i.options.length})`,
+    type: "line",
     options: {
-      type: "line",
       color: "#1111AA",
+      length: 20,
     },
-    fn: (bar) => {
-      return round2(sma(bar, 20, "close"));
+    fn: (bar, options) => {
+      return round2(sma(bar, options.length, "close"));
     },
   },
 ];
@@ -28,6 +29,52 @@ const indicators = [
 // Library code
 
 // Misc helpers first
+
+function deepCopy(obj) {
+  // Handle null, undefined, and non-object values
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  // Handle Date
+  if (obj instanceof Date) {
+    return new Date(obj.getTime());
+  }
+
+  // Handle Arrays
+  if (Array.isArray(obj)) {
+    var copiedArray = [];
+    for (var i = 0; i < obj.length; i++) {
+      copiedArray[i] = deepCopy(obj[i]);
+    }
+    return copiedArray;
+  }
+
+  // Handle Objects
+  if (obj instanceof Object) {
+    var copiedObj = {};
+    for (var key in obj) {
+      // Ensure the property belongs to the object, not inherited
+      if (obj.hasOwnProperty(key)) {
+        copiedObj[key] = deepCopy(obj[key]);
+      }
+    }
+    return copiedObj;
+  }
+
+  // If it's a function or other type, return it as is
+  return obj;
+}
+
+function generateRandomString(length) {
+  var result = '';
+  var characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  var charactersLength = characters.length;
+  for (var i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  }
+  return result;
+}
 
 function hexToRgba(hex) {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -42,6 +89,19 @@ function round2(num) {
 }
 
 const transparent = [0, 0, 0, 0];
+
+function removeObjectFromArray(array, object) {
+  const index = array.indexOf(object);
+  if (index > -1) {
+    array.splice(index, 1);
+  }
+}
+
+// Imported icons
+
+const iconoirEyeSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" viewBox="0 0 24 24" stroke-width="1.5" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M3 13C6.6 5 17.4 5 21 13" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 17C10.3431 17 9 15.6569 9 14C9 12.3431 10.3431 11 12 11C13.6569 11 15 12.3431 15 14C15 15.6569 13.6569 17 12 17Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
+const iconoirXmarkSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+const iconoirSettingsSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
 
 // Supply some utility functions for indicators
 
@@ -80,6 +140,7 @@ const data = userProvidedData.map((datum, index, arr) => createWrappedDatum(datu
 const state = {
   currentBar: null,
   volumeVisible: true,
+  indicators: [],
 };
 
 const priceChangeCallbacks = [];
@@ -103,123 +164,6 @@ const setFillColor = (opacity) => {
       .data(data)(program)
   };
 };
-
-// Then we manually create the HTML elements we will need
-
-const container = document.getElementById(chartContainer);
-container.style.display = "flex";
-container.style.flexDirection = "column";
-
-const ohlcChartElem = document.createElement("div");
-ohlcChartElem.id = "ohlc-chart";
-ohlcChartElem.style.flex = 4;
-container.appendChild(ohlcChartElem);
-
-const volumeChartElem = document.createElement("div");
-volumeChartElem.id = "volume-chart";
-volumeChartElem.style.flex = 1;
-container.appendChild(volumeChartElem);
-
-const infoBoxElem = document.createElement("div");
-infoBoxElem.id = "info-box";
-infoBoxElem.style.position = "absolute";
-infoBoxElem.style.padding = "0.7em";
-infoBoxElem.style.backgroundColor = "#eee";
-infoBoxElem.style.userSelect = "none";
-infoBoxElem.style.width = "20em";
-infoBoxElem.style.fontSize = "14px";
-container.appendChild(infoBoxElem);
-
-const ohlcBoxElem = document.createElement("div");
-
-const ohlcvElements = {
-  open: document.createElement("span"),
-  high: document.createElement("span"),
-  low: document.createElement("span"),
-  close: document.createElement("span"),
-};
-
-priceChangeCallbacks.push(bar => {
-  ohlcvElements.open.innerHTML = round2(bar.open);
-  ohlcvElements.high.innerHTML = round2(bar.high);
-  ohlcvElements.low.innerHTML = round2(bar.low);
-  ohlcvElements.close.innerHTML = round2(bar.close);
-});
-
-const openLabel = document.createElement("span");
-openLabel.innerHTML = "O: ";
-const highLabel = document.createElement("span");
-highLabel.innerHTML = " H: ";
-const lowLabel = document.createElement("span");
-lowLabel.innerHTML = " L: ";
-const closeLabel = document.createElement("span");
-closeLabel.innerHTML = " C: ";
-
-ohlcvElements.open.style.fontWeight = "bold";
-ohlcvElements.high.style.fontWeight = "bold";
-ohlcvElements.low.style.fontWeight = "bold";
-ohlcvElements.close.style.fontWeight = "bold";
-
-ohlcBoxElem.appendChild(openLabel);
-ohlcBoxElem.appendChild(ohlcvElements.open);
-ohlcBoxElem.appendChild(highLabel);
-ohlcBoxElem.appendChild(ohlcvElements.high);
-ohlcBoxElem.appendChild(lowLabel);
-ohlcBoxElem.appendChild(ohlcvElements.low);
-ohlcBoxElem.appendChild(closeLabel);
-ohlcBoxElem.appendChild(ohlcvElements.close);
-infoBoxElem.appendChild(ohlcBoxElem);
-
-infoBoxItems = [];
-
-function addToInfoBox(label, visibilityToggleFn, valueFn) {
-  const newItemElem = document.createElement("div")
-  newItemElem.style.width = "fit-content";
-  newItemElem.style.cursor = "pointer";
-  newItemElem.style.marginTop = "0.2em";
-
-  const newItemLabel = document.createElement("span");
-  newItemLabel.innerHTML = label + ": ";
-
-  newItemElem.appendChild(newItemLabel);
-
-  const valueElem = document.createElement("span");
-  valueElem.style.fontWeight = "bold";
-  newItemElem.appendChild(valueElem);
-
-  infoBoxElem.appendChild(newItemElem);
-
-  let toggled = true;
-
-  newItemElem.addEventListener("click", () => {
-    visibilityToggleFn();
-    toggled = !toggled;
-    if (!toggled) {
-      newItemElem.style.opacity = 0.5;
-    } else {
-      newItemElem.style.opacity = 1;
-    }
-    render();
-  });
-
-  infoBoxItems.push({
-    onValueChange: (bar) => {
-      const value = valueFn(bar);
-      if (isNaN(value)) {
-        valueElem.innerHTML = "...";
-      } else {
-        valueElem.innerHTML = "" + valueFn(bar);
-      }
-    },
-  });
-}
-
-priceChangeCallbacks.push(bar => infoBoxItems.forEach(i => i.onValueChange(bar)));
-
-addToInfoBox(
-  "Volume",
-  () => state.volumeVisible = !state.volumeVisible,
-  (bar) => round2(bar.volume));
 
 // Here is some hacky CSS to make the OHLC and Volume chart stick so closely to each other
 function specialgrid(sel) {
@@ -253,6 +197,262 @@ function attr(k, v) {
 
 const displayNone = attr('display', 'none');
 
+// Then we manually create the HTML elements we will need
+
+function createFormFromObject(elem, obj, callback) {
+  // Create the form element
+  var form = document.createElement('form');
+  form.style.textAlign = 'left';
+  form.style.marginTop = '1em';
+
+  // Function to gather form data and call the callback
+  function gatherDataAndCallCallback() {
+    var formData = {};
+    for (var i = 0; i < form.elements.length; i++) {
+      var formElement = form.elements[i];
+      if (formElement.name) {
+        formData[formElement.name] = formElement.value;
+      }
+    }
+    callback(formData);
+  }
+
+  // Iterate over each property in the object
+  for (var key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      // Create a container for each row
+      var row = document.createElement('div');
+      row.style.marginBottom = '10px';
+      row.style.marginLeft = '0.5em';
+
+      // Create a label for the input
+      var label = document.createElement('label');
+      label.textContent = key + ': ';
+      label.style.marginRight = '10px';
+      label.style.display = 'inline-block';
+      label.style.width = '100px';
+
+      // Create the input element
+      var input = document.createElement('input');
+      input.name = key;
+      input.value = obj[key];
+
+      // Determine the type of the input
+      if (typeof obj[key] === 'string') {
+        if (obj[key].startsWith('#')) {
+          input.type = 'color';
+        } else {
+          input.type = 'text';
+        }
+      } else if (typeof obj[key] === 'number') {
+        input.type = 'number';
+      }
+
+      // Add blur event listener to call callback when input loses focus
+      input.addEventListener('blur', gatherDataAndCallCallback);
+
+      // Append the label and input to the row
+      row.appendChild(label);
+      row.appendChild(input);
+
+      // Append the row to the form
+      form.appendChild(row);
+    }
+  }
+
+  elem.appendChild(form);
+}
+
+var style = document.createElement('style');
+style.type = 'text/css';
+style.innerHTML = '.info-box-hover-effect:hover { background-color: rgba(0, 0, 0, 0.1); }';
+document.getElementsByTagName('head')[0].appendChild(style);
+
+const container = document.getElementById(chartContainer);
+container.style.display = "flex";
+container.style.flexDirection = "column";
+container.style.fontSize = '1.2em';
+
+const ohlcChartElem = document.createElement("div");
+ohlcChartElem.id = "ohlc-chart";
+ohlcChartElem.style.flex = 4;
+container.appendChild(ohlcChartElem);
+
+const volumeChartElem = document.createElement("div");
+volumeChartElem.id = "volume-chart";
+volumeChartElem.style.flex = 1;
+container.appendChild(volumeChartElem);
+
+const infoBoxElem = document.createElement("div");
+infoBoxElem.id = "info-box";
+infoBoxElem.style.position = "absolute";
+infoBoxElem.style.padding = "0.4em 0.6em 0.4em 0.4em";
+infoBoxElem.style.backgroundColor = "#eee";
+infoBoxElem.style.userSelect = "none";
+infoBoxElem.style.width = "24em";
+container.appendChild(infoBoxElem);
+
+const ohlcBoxElem = document.createElement("div");
+ohlcBoxElem.style.padding = '0.3em';
+
+const ohlcElements = {
+  open: document.createElement("span"),
+  high: document.createElement("span"),
+  low: document.createElement("span"),
+  close: document.createElement("span"),
+};
+
+priceChangeCallbacks.push(bar => {
+  ohlcElements.open.innerHTML = round2(bar.open);
+  ohlcElements.high.innerHTML = round2(bar.high);
+  ohlcElements.low.innerHTML = round2(bar.low);
+  ohlcElements.close.innerHTML = round2(bar.close);
+});
+
+const openLabel = document.createElement("span");
+openLabel.innerHTML = "O: ";
+const highLabel = document.createElement("span");
+highLabel.innerHTML = " H: ";
+const lowLabel = document.createElement("span");
+lowLabel.innerHTML = " L: ";
+const closeLabel = document.createElement("span");
+closeLabel.innerHTML = " C: ";
+
+ohlcElements.open.style.fontWeight = "bold";
+ohlcElements.high.style.fontWeight = "bold";
+ohlcElements.low.style.fontWeight = "bold";
+ohlcElements.close.style.fontWeight = "bold";
+
+ohlcBoxElem.appendChild(openLabel);
+ohlcBoxElem.appendChild(ohlcElements.open);
+ohlcBoxElem.appendChild(highLabel);
+ohlcBoxElem.appendChild(ohlcElements.high);
+ohlcBoxElem.appendChild(lowLabel);
+ohlcBoxElem.appendChild(ohlcElements.low);
+ohlcBoxElem.appendChild(closeLabel);
+ohlcBoxElem.appendChild(ohlcElements.close);
+infoBoxElem.appendChild(ohlcBoxElem);
+
+infoBoxItems = [];
+
+function addToInfoBox(indicator, visibilityToggleFn, valueFn, removeCb) {
+  const newItemElem = document.createElement("div")
+  const id = generateRandomString(8);
+  newItemElem.id = id;
+  if (indicator.state) {
+    indicator.state.elementId = id;
+  }
+  newItemElem.style.width = "100%";
+  newItemElem.style.padding = "0 0.3em";
+  newItemElem.style.display = "flex";
+  newItemElem.style.alignItems = "center";
+
+  const newItemLabel = document.createElement("span");
+  newItemLabel.className = "label";
+  newItemLabel.innerHTML = indicator.name(indicator) + ": ";
+
+  newItemElem.appendChild(newItemLabel);
+
+  const valueElem = document.createElement("span");
+  valueElem.style.fontWeight = "bold";
+  valueElem.style.marginLeft = "0.3em";
+  newItemElem.appendChild(valueElem);
+
+  const rightSideElems = document.createElement("span");
+  rightSideElems.style.flex = "1";
+  rightSideElems.style.textAlign = "right";
+  newItemElem.appendChild(rightSideElems);
+
+  const toggleElem = document.createElement("span");
+  toggleElem.innerHTML = iconoirEyeSvg;
+  toggleElem.style.paddingLeft = '.1em';
+  toggleElem.style.cursor = "pointer";
+  rightSideElems.appendChild(toggleElem);
+
+  infoBoxElem.insertBefore(newItemElem, infoBoxElem.children[infoBoxElem.children.length - 1])
+
+  let toggled = true;
+
+  toggleElem.addEventListener("click", () => {
+    visibilityToggleFn();
+    toggled = !toggled;
+    if (!toggled) {
+      newItemElem.style.opacity = 0.5;
+    } else {
+      newItemElem.style.opacity = 1;
+    }
+    render();
+  });
+
+  const infoBoxItem = {
+    onValueChange: (bar) => {
+      const value = valueFn(bar);
+      if (isNaN(value)) {
+        valueElem.innerHTML = "...";
+      } else {
+        valueElem.innerHTML = "" + valueFn(bar);
+      }
+    },
+  };
+  infoBoxItems.push(infoBoxItem);
+
+  if (removeCb) {
+    const removeElem = document.createElement("span");
+    removeElem.innerHTML = iconoirXmarkSvg;
+    removeElem.style.paddingLeft = '.1em';
+    removeElem.style.cursor = "pointer";
+    rightSideElems.appendChild(removeElem);
+
+    const settingsElem = document.createElement("span");
+    settingsElem.innerHTML = iconoirSettingsSvg;
+    settingsElem.style.cursor = "pointer";
+    rightSideElems.insertBefore(settingsElem, toggleElem);
+
+    const [settingsPopup, settingsContents, showSettingsPopup] = createPopup(indicator.name(indicator));
+    createFormFromObject(settingsContents, indicator.options, opts => {
+      indicator.options = opts;
+      indicator.state.chartObjects.line.decorate(fc.webglStrokeColor(hexToRgba(indicator.options.color)))
+      refreshInfoBox(indicator);
+      render();
+    });
+    settingsElem.addEventListener("click", showSettingsPopup);
+
+    removeElem.addEventListener("click", () => {
+      newItemElem.remove();
+      settingsPopup.remove();
+      removeObjectFromArray(infoBoxItems, infoBoxItem);
+      removeCb();
+    });
+  } else {
+    rightSideElems.style.paddingRight = '1.65em';
+  }
+}
+
+function refreshInfoBox(indicator) {
+  const elem = document.getElementById(indicator.state.elementId);
+  if (elem) {
+    for (var i = 0; i < elem.children.length; i++) {
+      if (elem.children[i].className === "label") {
+        elem.children[i].innerHTML = indicator.name(indicator) + ": ";
+      }
+    }
+  }
+}
+
+priceChangeCallbacks.push(bar => infoBoxItems.forEach(i => i.onValueChange(bar)));
+
+const addIndicatorElem = document.createElement('div');
+addIndicatorElem.innerHTML = 'Add Indicator';
+addIndicatorElem.style.textDecoration = 'underline';
+addIndicatorElem.style.cursor = 'pointer';
+addIndicatorElem.style.padding = '0.3em 0 0 0.3em';
+infoBoxElem.appendChild(addIndicatorElem);
+
+addToInfoBox(
+  { name: () => "Volume" },
+  () => state.volumeVisible = !state.volumeVisible,
+  (bar) => round2(bar.volume));
+
 // Set up the zooming and scaling
 
 function paddedAccessors() {
@@ -278,43 +478,113 @@ const zoom = fc
 
 // Define the indicators
 
-indicators.forEach((indicator) => {
-  // Add name to the infobox with ability to toggle
-  // Use options to determine how to call the function
-  // Call the function to get the values, write them back to the indicator
-  // Create the object that will use the values
-  // Make sure the crosshair updates the right values in the infobox
-  const { name, options, fn } = indicator;
-  const state = {
+function addIndicator(indicator) {
+  const { type, options, fn } = indicator;
+  indicator.fn = (bar) => fn(bar, indicator.options);
+  indicator.state = {
     enabled: true,
     chartObjects: {},
     values: [],
   };
 
-  if (options.type === "line") {
+  if (type === "line") {
     const line = fc
       .seriesWebglLine()
       .xScale(xScale)
       .yScale(yScale)
       .crossValue(d => d.date)
-      .mainValue(fn)
+      .mainValue(indicator.fn)
       .decorate(fc.webglStrokeColor(hexToRgba(options.color)));
-    state.chartObjects.line = line;
+    indicator.state.chartObjects.line = line;
   }
 
-  indicator.state = state;
+  state.indicators.push(indicator);
 
-  addToInfoBox(name, () => {
-    state.enabled = !state.enabled;
-    if (!state.enabled) {
-      state.chartObjects.line.mainValue(_ => undefined);
+  addToInfoBox(indicator, () => {
+    indicator.state.enabled = !indicator.state.enabled;
+    if (!indicator.state.enabled) {
+      indicator.state.chartObjects.line.mainValue(_ => undefined);
     } else {
-      state.chartObjects.line.mainValue(fn);
+      indicator.state.chartObjects.line.mainValue(indicator.fn);
     }
-  }, (bar) => fn(bar));
+  },
+    (bar) => indicator.fn(bar),
+    () => {
+      removeObjectFromArray(state.indicators, indicator);
+      removeFromWebglMultiSeries(indicator.state.chartObjects.line);
+    });
+
+  addToWebglMultiSeries(indicator.state.chartObjects.line);
+}
+
+function createPopup(titleText) {
+  const popupContainer = document.createElement('div');
+  popupContainer.style.position = 'absolute';
+  popupContainer.style.backgroundColor = 'rgba(238, 238, 238, 0.5)';
+  popupContainer.style.width = '100%';
+  popupContainer.style.height = '100%';
+  popupContainer.style.display = 'none';
+  popupContainer.style.userSelect = 'none';
+
+  popupContainer.onclick = function (e) {
+    if (e.target === popupContainer) {
+      popupContainer.style.display = 'none';
+    }
+  }
+
+  const popup = document.createElement('div');
+  popup.style.width = '400px';
+  popup.style.margin = '100px auto';
+  popup.style.backgroundColor = '#fff';
+  popup.style.position = 'relative';
+  popup.style.padding = '15px';
+  popup.style.boxShadow = '0px 0px 10px rgba(0,0,0,0.5)';
+
+  const title = document.createElement('div');
+  title.innerHTML = titleText;
+  title.style.fontSize = '1.5em';
+  title.style.padding = '5px';
+
+  const contents = document.createElement('div');
+
+  const closeButton = document.createElement('div');
+  closeButton.innerHTML = iconoirXmarkSvg;
+  closeButton.style.position = 'absolute';
+  closeButton.style.top = '20px';
+  closeButton.style.right = '15px';
+  closeButton.style.cursor = 'pointer';
+
+  const hidePopup = function () {
+    popupContainer.style.display = 'none';
+  };
+  closeButton.onclick = hidePopup;
+
+  popup.appendChild(title);
+  popup.appendChild(closeButton);
+  popup.appendChild(contents);
+  popupContainer.appendChild(popup);
+
+  container.appendChild(popupContainer);
+
+  return [popupContainer, contents, () => {
+    popupContainer.style.display = 'block';
+  }, hidePopup];
+}
+
+const [_, indicatorPopupContents, showIndicatorPopup] = createPopup('Add Indicator');
+
+indicators.forEach(i => {
+  const elem = document.createElement('div');
+  elem.className = "info-box-hover-effect";
+  elem.innerHTML = i.name(i);
+  elem.style.marginTop = '1em';
+  elem.style.cursor = 'pointer';
+  elem.style.padding = '5px';
+  elem.addEventListener('click', () => addIndicator(deepCopy(i)));
+  indicatorPopupContents.appendChild(elem);
 });
 
-const indicatorObjects = indicators.map(({ state }) => Object.values(state.chartObjects)).flat();
+addIndicatorElem.addEventListener('click', showIndicatorPopup);
 
 // Define the base charts
 
@@ -336,7 +606,20 @@ const webglMulti = fc.seriesWebglMulti();
 webglMulti
   .xScale(xScale)
   .yScale(yScale)
-  .series([candlestick, ...indicatorObjects]);
+  .series([candlestick]);
+
+function addToWebglMultiSeries(newSeries) {
+  const existingSeries = webglMulti.series();
+  webglMulti.series([...existingSeries, newSeries]);
+  render();
+}
+
+function removeFromWebglMultiSeries(seriesToRemove) {
+  const newSeries = webglMulti.series();
+  removeObjectFromArray(newSeries, seriesToRemove);
+  webglMulti.series(newSeries);
+  render();
+}
 
 const ohlcChart = fc
   .chartCartesian(xScale, yScale)
@@ -493,7 +776,7 @@ function renderCrosshair() {
 
   const adjustLabel = (g, rect1, rect2, text) => {
     const label = g.attr('id');
-    const transform = label === 'x-label' ? `translate(${mousePos.x},16)` : `translate(0,${mousePos.y})`;
+    const transform = label === 'x-label' ? `translate(${mousePos.x},18)` : `translate(5,${mousePos.y})`;
     g.attr('transform', transform);
     rect1.style('fill', 'white');
     rect2.style('fill', 'black');
