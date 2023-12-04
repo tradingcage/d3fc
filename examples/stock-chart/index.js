@@ -796,7 +796,13 @@ function FirChart(chartContainer, userProvidedData, options) {
       const newPaneIndex = state.additionalPanes.length;
 
       const newPaneChart = fc
-        .chartCartesian(xScale, newPaneYScale)
+        .chartCartesian({
+          xScale,
+          yScale: newPaneYScale,
+          yAxis: {
+            right: scale => fc.axisRight(scale).ticks(3),
+          },
+        })
         .webglPlotArea(multi)
         .svgPlotArea(lowLine)
         .decorate(sel => {
@@ -809,9 +815,6 @@ function FirChart(chartContainer, userProvidedData, options) {
             .call(zoom, xScale);
           sel.enter()
             .selectAll('.top-label')
-            .call(displayNone);
-          sel.enter()
-            .selectAll('.right-axis svg')
             .call(displayNone);
           sel.enter()
             .selectAll('svg')
@@ -1024,7 +1027,13 @@ function FirChart(chartContainer, userProvidedData, options) {
     });
 
   const volumeChart = fc
-    .chartCartesian(xScale, volumeScale)
+    .chartCartesian({
+      xScale,
+      yScale: volumeScale,
+      yAxis: {
+        right: scale => fc.axisRight(scale).ticks(3),
+      },
+    })
     .webglPlotArea(volume)
     .svgPlotArea(lowLine)
     .decorate(sel => {
@@ -1037,9 +1046,6 @@ function FirChart(chartContainer, userProvidedData, options) {
         .call(zoom, xScale);
       sel.enter()
         .selectAll('.top-label')
-        .call(displayNone);
-      sel.enter()
-        .selectAll('.right-axis svg')
         .call(displayNone);
       sel.enter()
         .selectAll('svg')
