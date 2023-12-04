@@ -62,6 +62,26 @@ function stdev(bar, length, accessor) {
   return Math.sqrt(sumOfSquares / length);
 }
 
+function rsi(bar, length, accessor) {
+  let gains = 0;
+  let losses = 0;
+
+  for (let i = 0; i < length - 1; i++) {
+    const difference = bar[i][accessor] - bar[i + 1][accessor];
+    if (difference >= 0) {
+      gains += difference;
+    } else {
+      losses -= difference;
+    }
+  }
+
+  const averageGain = gains / length;
+  const averageLoss = losses / length;
+  const relativeStrength = averageGain / averageLoss;
+
+  return 100 - (100 / (1 + relativeStrength));
+}
+
 function FirChart(chartContainer, userProvidedData, options) {
 
   // Define the library of indicators
@@ -144,12 +164,32 @@ function FirChart(chartContainer, userProvidedData, options) {
     },
   };
 
+  const rsiIndicator = {
+    name: (i) => `Relative Strength Index (${i.options.length})`,
+    type: "band",
+    separatePane: true,
+    options: {
+      color: "#A1A11A",
+      length: 14,
+      upperLevel: 70,
+      lowerLevel: 30,
+    },
+    fn: (bar, options) => {
+      return [
+        options.upperLevel,
+        round2(rsi(bar, options.length, 'close')),
+        options.lowerLevel,
+      ];
+    }
+  }
+
   const indicatorsByName = {
     "sma": simpleMovingAverageIndicator,
     "ema": exponentialMovingAverageIndicator,
     "atr": averageTrueRangeIndicator,
     "keltnerChannels": keltnerChannelsIndicator,
     "bollingerBands": bollingerBandsIndicator,
+    "rsi": rsiIndicator,
   };
 
   // Helper functions
@@ -278,6 +318,19 @@ function FirChart(chartContainer, userProvidedData, options) {
   }
 
   const displayNone = attr('display', 'none');
+  const displayBlock = attr('display', 'block');
+
+  function disablePane(id) {
+    d3.selectAll(`${id} .plot-area`).call(displayNone);
+    d3.selectAll(`${id} .cartesian-chart`).call(flatgrid);
+    d3.selectAll(`${id}`).call(attr("flex", "0"));
+  }
+
+  function enablePane(id) {
+    d3.selectAll(`${id} .plot-area`).call(displayBlock);
+    d3.selectAll(`${id} .cartesian-chart`).call(specialgrid);
+    d3.selectAll(`${id}`).call(attr("flex", "1"));
+  }
 
   // Data helpers
 
@@ -426,6 +479,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     currentBar: null,
     volumeVisible: true,
     indicators: [],
+    additionalPanes: [],
   };
 
   const priceChangeCallbacks = [];
@@ -677,8 +731,48 @@ function FirChart(chartContainer, userProvidedData, options) {
       render();
     });
 
+  // Initial crosshair setup since this is used by the indicators
 
-  // Define the indicators
+  function annotationLine(sel) {
+    sel.enter()
+      .selectAll('g.annotation-line > line')
+      .each(function () {
+        const self = d3.select(this);
+        self.style('stroke-opacity', '.8');
+        self.style('stroke-dasharray', '4');
+      });
+  }
+
+  const crosshair = fc.annotationSvgCrosshair()
+    .xScale(xScale)
+    .yScale(yScale)
+    .xLabel(_ => "")
+    .yLabel(_ => "")
+    .decorate(sel => {
+      sel.call(annotationLine);
+    });
+
+  const crosshairVertical = fc.annotationSvgCrosshair()
+    .xScale(xScale)
+    .yScale(yScale)
+    .xLabel(_ => "")
+    .yLabel(_ => "")
+    .decorate(sel => {
+      sel.select('.horizontal').style('visibility', 'hidden');
+      sel.select('.point').style('visibility', 'hidden');
+      sel.call(annotationLine);
+    });
+
+  // Add the indicators
+
+  function refreshBottomAxesVisibility() {
+    let lowestPaneId = '#volume-chart';
+    state.additionalPanes.forEach(({ id }) => {
+      document.querySelector(`${lowestPaneId} d3fc-svg.x-axis.bottom-axis`).style.display = "none";
+      lowestPaneId = id;
+    });
+    document.querySelector(`${lowestPaneId} d3fc-svg.x-axis.bottom-axis`).style.display = "block";
+  }
 
   function addIndicator(indicator) {
     const { type, options, fn } = indicator;
@@ -686,6 +780,76 @@ function FirChart(chartContainer, userProvidedData, options) {
     indicator.state = {
       enabled: true,
       chartObjects: {},
+    };
+
+    let multi = webglMulti;
+
+    let additionalPane;
+    if (indicator.separatePane) {
+      d3.select("#x-label").remove();
+
+      indicator.state.newPaneElem = document.createElement("div");
+      indicator.state.newPaneElem.id = generateRandomString(8);
+      indicator.state.newPaneElem.style.flex = 1;
+      container.appendChild(indicator.state.newPaneElem);
+
+      multi = fc.seriesWebglMulti();
+
+      let newPaneYDomain;
+      if (type === "line") {
+        const values = data.map(bar => indicator.fn(bar)).filter(v => !isNaN(v));
+        newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
+      } else if (type === "band") {
+        const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
+        newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
+      }
+      const newPaneYScale = d3.scaleLinear().domain(newPaneYDomain);
+
+      const newPaneChart = fc
+        .chartCartesian(xScale, newPaneYScale)
+        .webglPlotArea(multi)
+        .svgPlotArea(lowLine)
+        .decorate(sel => {
+          sel.enter().call(specialgrid);
+          sel.enter()
+            .selectAll('.plot-area')
+            .call(zoom, xScale, yScale)
+          sel.enter()
+            .selectAll('.x-axis')
+            .call(zoom, xScale);
+          sel.enter()
+            .selectAll('.top-label')
+            .call(displayNone);
+          sel.enter()
+            .selectAll('.right-axis svg')
+            .call(displayNone);
+          sel.enter()
+            .selectAll('svg')
+            .call(attr("font-size", "14px"));
+        });
+
+      additionalPane = { id: '#' + indicator.state.newPaneElem.id, chart: newPaneChart };
+      state.additionalPanes.push(additionalPane);
+    }
+
+    indicator.enableSeparatePane = () => {
+      if (indicator.separatePane) {
+        enablePane(additionalPane.id);
+      }
+    };
+
+    indicator.disableSeparatePane = () => {
+      if (indicator.separatePane) {
+        disablePane(additionalPane.id);
+      }
+    };
+
+    indicator.removeSeparatePane = () => {
+      if (indicator.separatePane) {
+        removeObjectFromArray(state.additionalPanes, additionalPane);
+        refreshBottomAxesVisibility();
+        indicator.state.newPaneElem.remove();
+      }
     };
 
     if (type === "line") {
@@ -711,10 +875,10 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
 
       indicator.remove = () => {
-        removeFromWebglMultiSeries(indicator.state.chartObjects.line);
+        removeFromWebglMultiSeries(multi, indicator.state.chartObjects.line);
       };
 
-      addToWebglMultiSeries(indicator.state.chartObjects.line);
+      addToWebglMultiSeries(multi, indicator.state.chartObjects.line);
 
     } else if (type === "band") {
 
@@ -727,7 +891,7 @@ function FirChart(chartContainer, userProvidedData, options) {
           .mainValue(bar => indicator.fn(bar)[i])
           .decorate(fc.webglStrokeColor(hexToRgba(options.color)))
         lines.push(line);
-        addToWebglMultiSeries(line);
+        addToWebglMultiSeries(multi, line);
       }
       lines[0].lineWidth(2);
       lines[lines.length - 1].lineWidth(2);
@@ -746,7 +910,7 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
 
       indicator.remove = () => {
-        indicator.state.chartObjects.lines.forEach(line => removeFromWebglMultiSeries(line));
+        indicator.state.chartObjects.lines.forEach(line => removeFromWebglMultiSeries(multi, line));
       };
     }
 
@@ -756,15 +920,20 @@ function FirChart(chartContainer, userProvidedData, options) {
       indicator.state.enabled = !indicator.state.enabled;
       if (!indicator.state.enabled) {
         indicator.disable();
+        indicator.disableSeparatePane();
       } else {
         indicator.enable();
+        indicator.enableSeparatePane();
       }
     },
       (bar) => indicator.fn(bar),
       () => {
         removeObjectFromArray(state.indicators, indicator);
+        indicator.removeSeparatePane();
         indicator.remove();
       });
+
+    refreshBottomAxesVisibility();
   }
 
   const [_, indicatorPopupContents, showIndicatorPopup] = createPopup('Add Indicator', container);
@@ -807,16 +976,16 @@ function FirChart(chartContainer, userProvidedData, options) {
     .yScale(yScale)
     .series([candlestick]);
 
-  function addToWebglMultiSeries(newSeries) {
-    const existingSeries = webglMulti.series();
-    webglMulti.series([...existingSeries, newSeries]);
+  function addToWebglMultiSeries(multi, newSeries) {
+    const existingSeries = multi.series();
+    multi.series([...existingSeries, newSeries]);
     render();
   }
 
-  function removeFromWebglMultiSeries(seriesToRemove) {
-    const newSeries = webglMulti.series();
+  function removeFromWebglMultiSeries(multi, seriesToRemove) {
+    const newSeries = multi.series();
     removeObjectFromArray(newSeries, seriesToRemove);
-    webglMulti.series(newSeries);
+    multi.series(newSeries);
     render();
   }
 
@@ -867,36 +1036,6 @@ function FirChart(chartContainer, userProvidedData, options) {
     });
 
   // The next chunk of code deals with getting the crosshair to work exactly the way I want
-
-  function annotationLine(sel) {
-    sel.enter()
-      .selectAll('g.annotation-line > line')
-      .each(function () {
-        const self = d3.select(this);
-        self.style('stroke-opacity', '.8');
-        self.style('stroke-dasharray', '4');
-      });
-  }
-
-  const crosshair = fc.annotationSvgCrosshair()
-    .xScale(xScale)
-    .yScale(yScale)
-    .xLabel(_ => "")
-    .yLabel(_ => "")
-    .decorate(sel => {
-      sel.call(annotationLine);
-    });
-
-  const crosshairVertical = fc.annotationSvgCrosshair()
-    .xScale(xScale)
-    .yScale(yScale)
-    .xLabel(_ => "")
-    .yLabel(_ => "")
-    .decorate(sel => {
-      sel.select('.horizontal').style('visibility', 'hidden');
-      sel.select('.point').style('visibility', 'hidden');
-      sel.call(annotationLine);
-    });
 
   let shiftKeyPressed = false;
 
@@ -959,6 +1098,12 @@ function FirChart(chartContainer, userProvidedData, options) {
       .datum([mousePos])
       .call(crosshairVertical);
 
+    let lowestPaneId = '#volume-chart';
+    state.additionalPanes.forEach(({ id }) => {
+      d3.select(`${id} svg`).datum([mousePos]).call(crosshairVertical);
+      lowestPaneId = id;
+    });
+
     // Some complicated code follows to make the x and y axis labels work smoothly
 
     const xLabelText = state.currentBar != null ? state.currentBar.date.toLocaleString() : "";
@@ -998,7 +1143,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     };
 
     if (xLabel.empty()) {
-      d3.select('#volume-chart .bottom-axis svg')
+      d3.select(`${lowestPaneId} .bottom-axis svg`)
         .each(function () {
           const self = d3.select(this);
           const g = self.append('g').attr('id', 'x-label');
@@ -1069,14 +1214,14 @@ function FirChart(chartContainer, userProvidedData, options) {
       .datum(data)
       .call(volumeChart);
 
+    state.additionalPanes.forEach(({ id, chart }) => {
+      d3.select(id).datum(data).call(chart);
+    });
+
     if (!state.volumeVisible) {
-      d3.selectAll('#volume-chart .plot-area').call(displayNone);
-      d3.selectAll('#volume-chart .cartesian-chart').call(flatgrid);
-      d3.selectAll('#volume-chart').call(attr("flex", "0"));
+      disablePane("#volume-chart");
     } else {
-      d3.selectAll('#volume-chart .plot-area').call(attr('display', 'block'));
-      d3.selectAll('#volume-chart .cartesian-chart').call(specialgrid);
-      d3.selectAll('#volume-chart').call(attr("flex", "1"));
+      enablePane("#volume-chart");
     }
 
     renderCrosshair();

@@ -10,5 +10,6 @@ FirChart("chart-container", fc.randomFinancial()(100), {
     "atr",
     "keltnerChannels",
     "bollingerBands",
+    "rsi",
   ],
 });
