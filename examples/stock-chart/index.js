@@ -793,6 +793,8 @@ function FirChart(chartContainer, userProvidedData, options) {
       }
       const newPaneYScale = d3.scaleLinear().domain(newPaneYDomain);
 
+      const newPaneIndex = state.additionalPanes.length;
+
       const newPaneChart = fc
         .chartCartesian(xScale, newPaneYScale)
         .webglPlotArea(multi)
@@ -817,15 +819,15 @@ function FirChart(chartContainer, userProvidedData, options) {
           sel.on("mousemove", e => {
             updateMouseX(e);
             let otherPanesHeight = yScale.range()[0] + volumeScale.range()[0];
-            state.additionalPanes.forEach(p => {
-              if (p.id !== newPaneId) {
+            state.additionalPanes.forEach((p, i) => {
+              if (p.id !== newPaneId && i < newPaneIndex) {
                 otherPanesHeight += p.yScale.range()[0];
               }
             })
 
             mousePos.y = e.layerY;
 
-            const limitY = volumeScale.range()[0];
+            const limitY = newPaneYScale.range()[0];
             if (Math.abs(e.clientY - otherPanesHeight - e.layerY) > 20) {
               mousePos.y = limitY;
             }
