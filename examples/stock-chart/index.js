@@ -480,6 +480,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     volumeVisible: true,
     indicators: [],
     additionalPanes: [],
+    currentPaneId: '#ohlc-chart',
   };
 
   const priceChangeCallbacks = [];
@@ -820,6 +821,7 @@ function FirChart(chartContainer, userProvidedData, options) {
             .selectAll('svg')
             .call(attr("font-size", "14px"));
           sel.on("mousemove", e => {
+            updateCurrentPaneId(newPaneId);
             updateMouseX(e);
             let otherPanesHeight = yScale.range()[0] + volumeScale.range()[0];
             state.additionalPanes.forEach((p, i) => {
@@ -1129,7 +1131,9 @@ function FirChart(chartContainer, userProvidedData, options) {
     const xLabelText = state.currentBar != null ? state.currentBar.date.toLocaleString() : "";
     const xLabel = d3.select("#x-label");
 
-    const yLabelText = round2(yScale.invert(mousePos.y));
+    const activeYScale = getYScaleOfPane(state.currentPaneId);
+    const adjustedY = mousePos.y - getHeightOfPanesAbove(state.currentPaneId);
+    const yLabelText = round2(activeYScale.invert(adjustedY));
     const yLabel = d3.select("#y-label");
 
     if (mousePos.x < 0 || mousePos.y < 0) {
@@ -1140,7 +1144,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     const adjustLabel = (g, rect1, rect2, text) => {
       const label = g.attr('id');
-      const transform = label === 'x-label' ? `translate(${mousePos.x},18)` : `translate(5,${mousePos.y})`;
+      const transform = label === 'x-label' ? `translate(${mousePos.x},18)` : `translate(5,${adjustedY})`;
       g.attr('transform', transform);
       rect1.style('fill', 'white');
       rect2.style('fill', 'black');
@@ -1183,7 +1187,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     }
 
     if (yLabel.empty()) {
-      d3.select('#ohlc-chart .right-axis svg')
+      d3.select(`${state.currentPaneId} .right-axis svg`)
         .each(function () {
           const self = d3.select(this);
           const g = self.append('g').attr('id', 'y-label');
@@ -1217,8 +1221,49 @@ function FirChart(chartContainer, userProvidedData, options) {
     }
   };
 
+  function updateCurrentPaneId(newId) {
+    if (state.currentPaneId !== newId) {
+      d3.select("#y-label").remove();
+    }
+    state.currentPaneId = newId;
+  }
+
+  function getHeightOfPanesAbove(paneId) {
+    if (paneId === '#ohlc-chart') {
+      return 0;
+    } else if (paneId === '#volume-chart') {
+      return yScale.range()[0];
+    } else {
+      let height = yScale.range()[0] + volumeScale.range()[0];
+      for (var i = 0; i < state.additionalPanes.length; i++) {
+        const { id, yScale } = state.additionalPanes[i];
+        if (paneId === id) {
+          break;
+        }
+        height += yScale.range()[0];
+      }
+      return height;
+    }
+  }
+
+  function getYScaleOfPane(paneId) {
+    if (paneId === '#ohlc-chart') {
+      return yScale;
+    } else if (paneId === '#volume-chart') {
+      return volumeScale;
+    } else {
+      for (var i = 0; i < state.additionalPanes.length; i++) {
+        const { id, yScale } = state.additionalPanes[i];
+        if (paneId === id) {
+          return yScale
+        }
+      }
+    }
+  }
+
   d3.select('#ohlc-chart')
     .on("mousemove", e => {
+      updateCurrentPaneId('#ohlc-chart');
       updateMouseX(e);
       mousePos.y = e.layerY;
       updateCrosshair();
@@ -1226,6 +1271,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   d3.select('#volume-chart')
     .on("mousemove", e => {
+      updateCurrentPaneId('#volume-chart');
       updateMouseX(e);
 
       const ohlcHeight = yScale.range()[0];
