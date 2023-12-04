@@ -724,7 +724,6 @@ function FirChart(chartContainer, userProvidedData, options) {
     .scaleExtent([.2, 5])
     .on('zoom', e => {
       mousePos.x = e.sourceEvent.layerX;
-      mousePos.y = e.sourceEvent.layerY;
       const visibleData = data.filter(d => xScale(d.date) >= 0 && xScale(d.date) <= d3.select('#ohlc-chart').node().clientWidth);
       const newDomain = fc.extentLinear().accessors(paddedAccessors())(visibleData);
       yScale.domain(newDomain);
@@ -748,20 +747,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     .yScale(yScale)
     .xLabel(_ => "")
     .yLabel(_ => "")
-    .decorate(sel => {
-      sel.call(annotationLine);
-    });
-
-  const crosshairVertical = fc.annotationSvgCrosshair()
-    .xScale(xScale)
-    .yScale(yScale)
-    .xLabel(_ => "")
-    .yLabel(_ => "")
-    .decorate(sel => {
-      sel.select('.horizontal').style('visibility', 'hidden');
-      sel.select('.point').style('visibility', 'hidden');
-      sel.call(annotationLine);
-    });
+    .decorate(annotationLine);
 
   // Add the indicators
 
@@ -793,6 +779,8 @@ function FirChart(chartContainer, userProvidedData, options) {
       indicator.state.newPaneElem.style.flex = 1;
       container.appendChild(indicator.state.newPaneElem);
 
+      const newPaneId = '#' + indicator.state.newPaneElem.id;
+
       multi = fc.seriesWebglMulti();
 
       let newPaneYDomain;
@@ -813,7 +801,7 @@ function FirChart(chartContainer, userProvidedData, options) {
           sel.enter().call(specialgrid);
           sel.enter()
             .selectAll('.plot-area')
-            .call(zoom, xScale, yScale)
+            .call(zoom, xScale)
           sel.enter()
             .selectAll('.x-axis')
             .call(zoom, xScale);
@@ -826,9 +814,32 @@ function FirChart(chartContainer, userProvidedData, options) {
           sel.enter()
             .selectAll('svg')
             .call(attr("font-size", "14px"));
+          sel.on("mousemove", e => {
+            updateMouseX(e);
+            let otherPanesHeight = yScale.range()[0] + volumeScale.range()[0];
+            state.additionalPanes.forEach(p => {
+              if (p.id !== newPaneId) {
+                otherPanesHeight += p.yScale.range()[0];
+              }
+            })
+
+            mousePos.y = e.layerY;
+
+            const limitY = volumeScale.range()[0];
+            if (Math.abs(e.clientY - otherPanesHeight - e.layerY) > 20) {
+              mousePos.y = limitY;
+            }
+            if (e.layerY > limitY) {
+              mousePos.y = limitY;
+            }
+
+            mousePos.y += otherPanesHeight;
+
+            updateCrosshair();
+          })
         });
 
-      additionalPane = { id: '#' + indicator.state.newPaneElem.id, chart: newPaneChart };
+      additionalPane = { id: newPaneId, chart: newPaneChart, yScale: newPaneYScale };
       state.additionalPanes.push(additionalPane);
     }
 
@@ -893,8 +904,6 @@ function FirChart(chartContainer, userProvidedData, options) {
         lines.push(line);
         addToWebglMultiSeries(multi, line);
       }
-      lines[0].lineWidth(2);
-      lines[lines.length - 1].lineWidth(2);
       indicator.state.chartObjects.lines = lines;
 
       indicator.refreshColors = () => {
@@ -1000,10 +1009,10 @@ function FirChart(chartContainer, userProvidedData, options) {
         .call(attr('border-bottom', '1px solid rgba(0, 0, 0, 0.1)'));
       sel.enter()
         .selectAll('.plot-area')
-        .call(zoom, xScale, yScale)
+        .call(zoom, xScale);
       sel.enter()
         .selectAll('.x-axis')
-        .call(displayNone, zoom, xScale);
+        .call(displayNone);
       sel.enter()
         .selectAll('.top-label')
         .call(displayNone);
@@ -1020,7 +1029,7 @@ function FirChart(chartContainer, userProvidedData, options) {
       sel.enter().call(specialgrid);
       sel.enter()
         .selectAll('.plot-area')
-        .call(zoom, xScale, yScale)
+        .call(zoom, xScale);
       sel.enter()
         .selectAll('.x-axis')
         .call(zoom, xScale);
@@ -1085,23 +1094,26 @@ function FirChart(chartContainer, userProvidedData, options) {
     renderCrosshair();
   }
 
-  const notInBounds = ({ x, y }) => {
-    return x < 0 || y < 0 || x > xScale.range()[1] || y > yScale.range()[0];
-  };
-
   function renderCrosshair() {
     d3.select('#ohlc-chart svg')
       .datum([mousePos])
       .call(crosshair);
 
-    d3.select('#volume-chart svg')
-      .datum([mousePos])
-      .call(crosshairVertical);
+    const ohlcHeight = yScale.range()[0];
 
+    d3.select('#volume-chart svg')
+      .datum([{ x: mousePos.x, y: mousePos.y - ohlcHeight }])
+      .call(crosshair);
+
+    let heightSoFar = ohlcHeight + volumeScale.range()[0];
     let lowestPaneId = '#volume-chart';
-    state.additionalPanes.forEach(({ id }) => {
-      d3.select(`${id} svg`).datum([mousePos]).call(crosshairVertical);
+    state.additionalPanes.forEach(({ id, yScale }) => {
+      d3.select(`${id} svg`).datum([{
+        x: mousePos.x,
+        y: mousePos.y - heightSoFar,
+      }]).call(crosshair);
       lowestPaneId = id;
+      heightSoFar += yScale.range()[0];
     });
 
     // Some complicated code follows to make the x and y axis labels work smoothly
@@ -1112,7 +1124,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     const yLabelText = round2(yScale.invert(mousePos.y));
     const yLabel = d3.select("#y-label");
 
-    if (notInBounds(mousePos)) {
+    if (mousePos.x < 0 || mousePos.y < 0) {
       xLabel.remove();
       yLabel.remove();
       return;
@@ -1183,20 +1195,43 @@ function FirChart(chartContainer, userProvidedData, options) {
     }
   }
 
+  const updateMouseX = e => {
+    mousePos.x = e.layerX;
+
+    // layerX gets a weirdly small value when you mouse over the y axis labels
+    const limitX = xScale.range()[1];
+    if (Math.abs(e.layerX - e.clientX) > 50) {
+      mousePos.x = limitX;
+    }
+    // but then if you go too far to the side of the y axis labels, layerX gets big again
+    if (e.layerX > limitX) {
+      mousePos.x = limitX;
+    }
+  };
+
   d3.select('#ohlc-chart')
     .on("mousemove", e => {
-      mousePos.x = e.layerX;
+      updateMouseX(e);
+      mousePos.y = e.layerY;
+      updateCrosshair();
+    });
+
+  d3.select('#volume-chart')
+    .on("mousemove", e => {
+      updateMouseX(e);
+
+      const ohlcHeight = yScale.range()[0];
       mousePos.y = e.layerY;
 
-      // layerX gets a weirdly small value when you mouse over the y axis labels
-      const limitX = xScale.range()[1];
-      if (Math.abs(e.layerX - e.clientX) > 50) {
-        mousePos.x = limitX;
+      const limitY = volumeScale.range()[0];
+      if (Math.abs(e.clientY - ohlcHeight - e.layerY) > 20) {
+        mousePos.y = limitY;
       }
-      // but then if you go too far to the side of the y axis labels, layerX gets big again
-      if (e.layerX > limitX) {
-        mousePos.x = limitX;
+      if (e.layerY > limitY) {
+        mousePos.y = limitY;
       }
+
+      mousePos.y += ohlcHeight;
 
       updateCrosshair();
     });

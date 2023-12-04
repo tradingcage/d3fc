@@ -23,7 +23,7 @@ const symbol = Symbol('d3fc-domain-zoom');
 export default () => {
     const dispatcher = dispatch('zoom');
 
-    const zoomer = zoom().on('zoom', function(e) {
+    const zoomer = zoom().on('zoom', function (e) {
         const { transform } = e;
         const node = this;
         let updatedTransform = transform;
@@ -39,14 +39,14 @@ export default () => {
         // DISABLED BY LINCOLN
         // I change the domain in the zoom event in the stock chart
         // and this code makes it not work, so it's commented out for now
-        // if (
-        //     !domainsEqual(previousXScale, xScale) ||
-        //     !domainsEqual(previousYScale, yScale)
-        // ) {
-        //     originalXScale = xScale?.copy();
-        //     originalYScale = yScale?.copy();
-        //     updatedTransform = subtract(transform, previousTransform);
-        // }
+        if (
+            !domainsEqual(previousXScale, xScale)
+            // || !domainsEqual(previousYScale, yScale)
+        ) {
+            originalXScale = xScale?.copy();
+            // originalYScale = yScale?.copy();
+            updatedTransform = subtract(transform, previousTransform);
+        }
         if (xScale != null) {
             previousXScale = updatedTransform.rescaleX(
                 originalXScale.range(xScale.range())
