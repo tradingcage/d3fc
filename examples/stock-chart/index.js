@@ -261,6 +261,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   // Imported icons
 
+  const svgNS = "http://www.w3.org/2000/svg";
   const iconoirEyeSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" viewBox="0 0 24 24" stroke-width="1.5" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M3 13C6.6 5 17.4 5 21 13" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M12 17C10.3431 17 9 15.6569 9 14C9 12.3431 10.3431 11 12 11C13.6569 11 15 12.3431 15 14C15 15.6569 13.6569 17 12 17Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>'
   const iconoirXmarkSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M6.75827 17.2426L12.0009 12M17.2435 6.75736L12.0009 12M12.0009 12L6.75827 6.75736M12.0009 12L17.2435 17.2426" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
   const iconoirSettingsSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
@@ -802,8 +803,15 @@ function FirChart(chartContainer, userProvidedData, options) {
     .on('zoom', e => {
       mousePos.x = e.sourceEvent.layerX;
       const visibleData = data.filter(d => xScale(d.date) >= 0 && xScale(d.date) <= d3.select('#ohlc-chart').node().clientWidth);
+      const oldDomain = yScale.domain();
       const newDomain = fc.extentLinear().accessors(paddedAccessors())(visibleData);
       yScale.domain(newDomain);
+
+      textDrawings.forEach(({ x, y, elem }) => {
+        elem.setAttributeNS(null, "x", xScale(x));
+        elem.setAttributeNS(null, "y", yScale(y));
+      });
+
       render();
     });
 
@@ -1195,6 +1203,26 @@ function FirChart(chartContainer, userProvidedData, options) {
     });
   }
 
+  const textDrawings = [];
+
+  function addTextDrawing(x, y, text) {
+    const ohlcSvg = document.querySelector('#ohlc-chart .plot-area svg');
+    if (ohlcSvg) {
+      const newText = document.createElementNS(svgNS, 'text');
+      newText.setAttributeNS(null, "x", xScale(x));
+      newText.setAttributeNS(null, "y", yScale(y));
+      newText.innerHTML = text;
+      ohlcSvg.appendChild(newText);
+      const newTextWrapper = { x, y, elem: newText };
+      newTextWrapper.remove = () => {
+        removeObjectFromArray(textDrawings, newTextWrapper);
+        elem.remove();
+      }
+      textDrawings.push(newTextWrapper);
+      return newText;
+    }
+  }
+
   // Define the base charts
 
   const candlestick = fc.autoBandwidth(fc.seriesWebglCandlestick())
@@ -1568,4 +1596,9 @@ function FirChart(chartContainer, userProvidedData, options) {
   }
 
   render();
+
+  return {
+    addTextDrawing,
+    addLineDrawing,
+  };
 }
