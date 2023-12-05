@@ -266,6 +266,19 @@ function FirChart(chartContainer, userProvidedData, options) {
   const iconoirSettingsSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M12 15C13.6569 15 15 13.6569 15 12C15 10.3431 13.6569 9 12 9C10.3431 9 9 10.3431 9 12C9 13.6569 10.3431 15 12 15Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path><path d="M19.6224 10.3954L18.5247 7.7448L20 6L18 4L16.2647 5.48295L13.5578 4.36974L12.9353 2H10.981L10.3491 4.40113L7.70441 5.51596L6 4L4 6L5.45337 7.78885L4.3725 10.4463L2 11V13L4.40111 13.6555L5.51575 16.2997L4 18L6 20L7.79116 18.5403L10.397 19.6123L11 22H13L13.6045 19.6132L16.2551 18.5155C16.6969 18.8313 18 20 18 20L20 18L18.5159 16.2494L19.6139 13.598L21.9999 12.9772L22 11L19.6224 10.3954Z" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
   const iconoirNavArrowDownSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M6 9L12 15L18 9" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
   const iconoirNavArrowUpSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" stroke-width="1.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M6 15L12 9L18 15" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+  const iconoirEditPencilSvg = '<?xml version="1.0" encoding="UTF-8"?><svg width="24px" height="24px" viewBox="0 0 24 24" stroke-width="1.5" fill="none" xmlns="http://www.w3.org/2000/svg" color="#000000"><path d="M14.3632 5.65156L15.8431 4.17157C16.6242 3.39052 17.8905 3.39052 18.6716 4.17157L20.0858 5.58579C20.8668 6.36683 20.8668 7.63316 20.0858 8.41421L18.6058 9.8942M14.3632 5.65156L4.74749 15.2672C4.41542 15.5993 4.21079 16.0376 4.16947 16.5054L3.92738 19.2459C3.87261 19.8659 4.39148 20.3848 5.0115 20.33L7.75191 20.0879C8.21972 20.0466 8.65806 19.8419 8.99013 19.5099L18.6058 9.8942M14.3632 5.65156L18.6058 9.8942" stroke="#000000" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path></svg>';
+
+  function svgToDataURL(svg) {
+    const escapedSvg = svg
+      .replace(/"/g, '\'')
+      .replace(/%/g, '%25')
+      .replace(/#/g, '%23')
+      .replace(/{/g, '%7B')
+      .replace(/}/g, '%7D')
+      .replace(/</g, '%3C')
+      .replace(/>/g, '%3E');
+    return `data:image/svg+xml,${escapedSvg}`;
+  }
 
   // d3fc style helper functions
 
@@ -483,7 +496,12 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   // Define stateful objects and their member functions
 
+  const modeCursor = "cursor";
+  const modePlaceLineInitial = "placeLineInitial";
+  const modePlaceLineSecondary = "placeLineSecondary";
+
   const state = {
+    mode: modeCursor,
     currentBar: null,
     volumeVisible: true,
     indicators: [],
@@ -496,6 +514,24 @@ function FirChart(chartContainer, userProvidedData, options) {
   priceChangeCallbacks.push(bar => state.currentBar = bar);
 
   const mousePos = { x: -1, y: -1 }
+
+  function switchMode(newMode) {
+    state.mode = newMode;
+    if (newMode === modePlaceLineInitial || newMode === modePlaceLineSecondary) {
+      d3.select('#ohlc-chart').node().style.cursor = `url("${svgToDataURL(iconoirEditPencilSvg)}") 0 24, pointer`;
+      d3.select('#volume-chart').node().style.cursor = 'not-allowed';
+      state.additionalPanes.forEach(({ id }) => {
+        d3.select(id).node().style.cursor = 'not-allowed';
+      });
+    } else {
+      removeActiveLine();
+      d3.select('#ohlc-chart').node().style.cursor = 'default';
+      d3.select('#volume-chart').node().style.cursor = 'default';
+      state.additionalPanes.forEach(({ id }) => {
+        d3.select(id).node().style.cursor = 'default';
+      });
+    }
+  }
 
   // Then we manually create the HTML elements we will need
 
@@ -742,7 +778,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   infoBoxActionContainerElem.appendChild(addLineElem);
 
   addLineElem.addEventListener("click", () => {
-    addLineDrawing("", data[10].date, 102, data[90].date, 98);
+    switchMode(modePlaceLineInitial);
   });
 
   addToInfoBox(
@@ -1025,12 +1061,87 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   // Add drawings
 
+  const defaultLineColor = '#7733dd';
   const svgMulti = fc.seriesSvgMulti();
   const drawings = [];
 
+  function createActiveLine(x1, y1) {
+    const chartObject = fc
+      .seriesSvgLine()
+      .xScale(xScale)
+      .yScale(yScale)
+      .decorate(sel => {
+        sel.attr('stroke', defaultLineColor);
+      });
+    addToMulti(svgMulti, chartObject);
+    state.activeLine = { x1: xScale.invert(x1), y1: yScale.invert(y1), chartObject };
+  }
+
+  const oneDayMillis = 1000 * 60 * 60 * 24;
+  function getLineCrossValueFn(x1, x2) {
+    return bar => {
+      const diff2 = (x2 - bar.date) / oneDayMillis;
+      if (diff2 > -1 && diff2 < 0) {
+        return x2;
+      }
+      const diff1 = (x1 - bar.date) / oneDayMillis;
+      if ((diff1 > 0 && diff1 < 1) || (diff1 > -1 && diff1 < 0)) {
+        return x1;
+      }
+      if (
+        (x1 <= x2 && bar.date >= x1 && bar.date <= x2) ||
+        (x2 < x1 && bar.date >= x2 && bar.date <= x1)
+      ) {
+        return bar.date;
+      }
+    }
+  }
+
+  function getLineMainValueFn(x1, y1, x2, y2) {
+    const slope = (y2 - y1) / (x2 - x1);
+    if (isNaN(slope)) {
+      return;
+    }
+    return bar => {
+      const diff2 = (x2 - bar.date) / oneDayMillis;
+      if (diff2 > -1 && diff2 < 0) {
+        return y2;
+      }
+      const diff1 = (x1 - bar.date) / oneDayMillis;
+      if ((diff1 > 0 && diff1 < 1) || (diff1 > -1 && diff1 < 0)) {
+        return y1;
+      }
+      return y1 + (bar.date.getTime() - x1.getTime()) * slope;
+    }
+  }
+
+  function updateActiveLine(x2pos, y2pos) {
+    if (state.activeLine == null || state.activeLine.chartObject == null) {
+      return;
+    }
+    const x1 = state.activeLine.x1;
+    const y1 = state.activeLine.y1;
+    const x2 = xScale.invert(x2pos);
+    const y2 = yScale.invert(y2pos);
+    state.activeLine.chartObject
+      .crossValue(getLineCrossValueFn(x1, x2))
+      .mainValue(getLineMainValueFn(x1, y1, x2, y2));
+    render();
+  }
+
+  function removeActiveLine() {
+    if (state.activeLine == null) {
+      return;
+    }
+    if (state.activeLine.chartObject != null) {
+      removeFromMulti(svgMulti, state.activeLine.chartObject);
+    }
+    state.activeLine = null;
+  }
+
   function addLineDrawing(name, x1, y1, x2, y2) {
 
-    const options = { name, color: '#7733dd' };
+    const options = { name, color: defaultLineColor };
     if (name === "") {
       options.name = "New Line";
     }
@@ -1042,25 +1153,15 @@ function FirChart(chartContainer, userProvidedData, options) {
     const state = { enabled: true };
     const drawing = { name: nameFn, options, state };
 
-    const slope = (y2 - y1) / (x2.getTime() - x1.getTime());
-    const mainValueFn = bar => {
-      if (bar.date >= x1 && bar.date <= x2) {
-        return y1 + (bar.date.getTime() - x1.getTime()) * slope;
-      }
-    };
-
     const decorateFn = sel => {
       sel.attr('stroke', drawing.options.color);
     };
+    const mainValueFn = getLineMainValueFn(x1, y1, x2, y2);
     const newDrawing = fc
       .seriesSvgLine()
       .xScale(xScale)
       .yScale(yScale)
-      .crossValue(bar => {
-        if (bar.date >= x1 && bar.date <= x2) {
-          return bar.date;
-        }
-      })
+      .crossValue(getLineCrossValueFn(x1, x2))
       .mainValue(mainValueFn)
       .decorate(decorateFn);
 
@@ -1211,6 +1312,10 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     mousePos.x = xScale(nearest.date);
     mousePos.y = nearestValue;
+
+    if (state.mode === modePlaceLineSecondary) {
+      updateActiveLine(mousePos.x, mousePos.y)
+    }
   }
 
   function updateCrosshair() {
@@ -1391,7 +1496,29 @@ function FirChart(chartContainer, userProvidedData, options) {
       updateMouseX(e);
       mousePos.y = e.layerY;
       updateCrosshair();
+      if (state.mode === modePlaceLineSecondary) {
+        updateActiveLine(mousePos.x, mousePos.y);
+      }
+    })
+    .on("click", e => {
+      if (state.mode === modePlaceLineInitial) {
+        createActiveLine(mousePos.x, mousePos.y);
+        switchMode(modePlaceLineSecondary);
+      } else if (state.mode === modePlaceLineSecondary) {
+        const x2 = xScale.invert(mousePos.x);
+        const y2 = yScale.invert(mousePos.y);
+        addLineDrawing("", state.activeLine.x1, state.activeLine.y1, x2, y2);
+        switchMode(modeCursor);
+      }
+    })
+    .on("contextmenu", e => {
+      e.preventDefault();
+      switchMode(modeCursor);
     });
+
+  document.body.addEventListener("keypress", () => {
+    switchMode(modeCursor)
+  });
 
   d3.select('#volume-chart')
     .on("mousemove", e => {
