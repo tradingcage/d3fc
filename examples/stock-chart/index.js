@@ -363,7 +363,11 @@ function FirChart(chartContainer, userProvidedData, options) {
       for (var i = 0; i < form.elements.length; i++) {
         var formElement = form.elements[i];
         if (formElement.name) {
-          formData[formElement.name] = formElement.value;
+          var value = formElement.value;
+          if (formElement.type === 'number') {
+            value = Number(value);
+          }
+          formData[formElement.name] = value;
         }
       }
       callback(formData);
@@ -443,6 +447,10 @@ function FirChart(chartContainer, userProvidedData, options) {
     title.style.fontSize = '1.5em';
     title.style.padding = '5px';
 
+    const updateTitle = (newTitle) => {
+      title.innerHTML = newTitle;
+    };
+
     const contents = document.createElement('div');
 
     const closeButton = document.createElement('div');
@@ -466,7 +474,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     return [popupContainer, contents, () => {
       popupContainer.style.display = 'block';
-    }, hidePopup];
+    }, updateTitle];
   }
 
   // Now the rest of the library code
@@ -593,12 +601,12 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   infoBoxItems = [];
 
-  function addToInfoBox(indicator, visibilityToggleFn, valueFn, removeCb) {
+  function addToInfoBox(newItem, visibilityToggleFn, valueFn, removeCb) {
     const newItemElem = document.createElement("div")
     const id = generateRandomString(8);
     newItemElem.id = id;
-    if (indicator.state) {
-      indicator.state.elementId = id;
+    if (newItem.state) {
+      newItem.state.elementId = id;
     }
     newItemElem.style.paddingLeft = "0.3em";
     newItemElem.style.display = "flex";
@@ -606,7 +614,14 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     const newItemLabel = document.createElement("span");
     newItemLabel.className = "label";
-    newItemLabel.innerHTML = indicator.name(indicator) + ": ";
+
+    let newName;
+    if (typeof newItem.name === "function") {
+      newName = newItem.name(newItem);
+    } else if (typeof newItem.name === "string") {
+      newName = newItem.name;
+    }
+    newItemLabel.innerHTML = newName;
 
     newItemElem.appendChild(newItemLabel);
 
@@ -641,19 +656,22 @@ function FirChart(chartContainer, userProvidedData, options) {
       render();
     });
 
-    const infoBoxItem = {
-      onValueChange: (bar) => {
-        const value = valueFn(bar);
-        if (Array.isArray(value) && !value.some(isNaN)) {
-          valueElem.innerHTML = value.join(",");
-        } else if (isNaN(value)) {
-          valueElem.innerHTML = "...";
-        } else {
-          valueElem.innerHTML = "" + value;
-        }
-      },
-    };
-    infoBoxItems.push(infoBoxItem);
+    let infoBoxItem;
+    if (valueFn) {
+      infoBoxItem = {
+        onValueChange: (bar) => {
+          const value = valueFn(bar);
+          if (Array.isArray(value) && !value.some(isNaN)) {
+            valueElem.innerHTML = value.join(",");
+          } else if (isNaN(value)) {
+            valueElem.innerHTML = "...";
+          } else {
+            valueElem.innerHTML = "" + value;
+          }
+        },
+      };
+      infoBoxItems.push(infoBoxItem);
+    }
 
     if (removeCb) {
       const removeElem = document.createElement("span");
@@ -667,19 +685,26 @@ function FirChart(chartContainer, userProvidedData, options) {
       settingsElem.style.cursor = "pointer";
       rightSideElems.insertBefore(settingsElem, toggleElem);
 
-      const [settingsPopup, settingsContents, showSettingsPopup] = createPopup(indicator.name(indicator), container);
-      createFormFromObject(settingsContents, indicator.options, opts => {
-        indicator.options = opts;
-        indicator.refreshColors();
-        refreshInfoBox(indicator);
+      const [settingsPopup, settingsContents, showSettingsPopup, updateTitle] = createPopup(newName, container);
+      createFormFromObject(settingsContents, newItem.options, opts => {
+        newItem.options = opts;
+        newItem.refreshOptions();
+        refreshInfoBox(newItem);
         render();
       });
-      settingsElem.addEventListener("click", showSettingsPopup);
+      settingsElem.addEventListener("click", () => {
+        if (typeof newItem.name === "function") {
+          updateTitle(newItem.name(newItem));
+        }
+        showSettingsPopup();
+      });
 
       removeElem.addEventListener("click", () => {
         newItemElem.remove();
         settingsPopup.remove();
-        removeObjectFromArray(infoBoxItems, infoBoxItem);
+        if (infoBoxItem) {
+          removeObjectFromArray(infoBoxItems, infoBoxItem);
+        }
         removeCb();
       });
     }
@@ -690,7 +715,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     if (elem) {
       for (var i = 0; i < elem.children.length; i++) {
         if (elem.children[i].className === "label") {
-          elem.children[i].innerHTML = indicator.name(indicator) + ": ";
+          elem.children[i].innerHTML = indicator.name(indicator);
         }
       }
     }
@@ -698,12 +723,27 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   priceChangeCallbacks.push(bar => infoBoxItems.forEach(i => i.onValueChange(bar)));
 
+  const infoBoxActionContainerElem = document.createElement('div');
+  infoBoxActionContainerElem.style.display = "flex";
+  infoBoxActionContainerElem.style.padding = '0.4em';
+  infoBoxSubcontainerElem.appendChild(infoBoxActionContainerElem);
+
   const addIndicatorElem = document.createElement('div');
   addIndicatorElem.innerHTML = 'Add Indicator';
   addIndicatorElem.style.textDecoration = 'underline';
   addIndicatorElem.style.cursor = 'pointer';
-  addIndicatorElem.style.padding = '0.4em 0 0.3em 0.3em';
-  infoBoxSubcontainerElem.appendChild(addIndicatorElem);
+  infoBoxActionContainerElem.appendChild(addIndicatorElem);
+
+  const addLineElem = document.createElement('div');
+  addLineElem.innerHTML = 'Add Line';
+  addLineElem.style.textDecoration = 'underline';
+  addLineElem.style.cursor = 'pointer';
+  addLineElem.style.marginLeft = '1em';
+  infoBoxActionContainerElem.appendChild(addLineElem);
+
+  addLineElem.addEventListener("click", () => {
+    addLineDrawing("", data[10].date, 102, data[90].date, 98);
+  });
 
   addToInfoBox(
     { name: () => "Volume" },
@@ -771,7 +811,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     let multi = webglMulti;
 
-    let additionalPane;
+    let additionalPane, newPaneYScale;
     if (indicator.separatePane) {
       d3.select("#x-label").remove();
 
@@ -792,7 +832,7 @@ function FirChart(chartContainer, userProvidedData, options) {
         const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
         newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
       }
-      const newPaneYScale = d3.scaleLinear().domain(newPaneYDomain);
+      newPaneYScale = d3.scaleLinear().domain(newPaneYDomain);
 
       const newPaneIndex = state.additionalPanes.length;
 
@@ -805,7 +845,7 @@ function FirChart(chartContainer, userProvidedData, options) {
           },
         })
         .webglPlotArea(multi)
-        .svgPlotArea(lowLine)
+        .svgPlotArea(noopsvg)
         .decorate(sel => {
           sel.enter().call(specialgrid);
           sel.enter()
@@ -880,7 +920,11 @@ function FirChart(chartContainer, userProvidedData, options) {
         .decorate(fc.webglStrokeColor(hexToRgba(options.color)));
       indicator.state.chartObjects.line = line;
 
-      indicator.refreshColors = () => {
+      indicator.refreshOptions = () => {
+        if (indicator.separatePane) {
+          const values = data.map(bar => indicator.fn(bar)).filter(v => !isNaN(v));
+          newPaneYScale.domain([Math.min(...values) * .95, Math.max(...values) * 1.05]);
+        }
         indicator.state.chartObjects.line.decorate(fc.webglStrokeColor(hexToRgba(indicator.options.color)));
       };
 
@@ -893,10 +937,10 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
 
       indicator.remove = () => {
-        removeFromWebglMultiSeries(multi, indicator.state.chartObjects.line);
+        removeFromMulti(multi, indicator.state.chartObjects.line);
       };
 
-      addToWebglMultiSeries(multi, indicator.state.chartObjects.line);
+      addToMulti(multi, indicator.state.chartObjects.line);
 
     } else if (type === "band") {
 
@@ -909,11 +953,15 @@ function FirChart(chartContainer, userProvidedData, options) {
           .mainValue(bar => indicator.fn(bar)[i])
           .decorate(fc.webglStrokeColor(hexToRgba(options.color)))
         lines.push(line);
-        addToWebglMultiSeries(multi, line);
+        addToMulti(multi, line);
       }
       indicator.state.chartObjects.lines = lines;
 
-      indicator.refreshColors = () => {
+      indicator.refreshOptions = () => {
+        if (indicator.separatePane) {
+          const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
+          newPaneYScale.domain([Math.min(...values) * .95, Math.max(...values) * 1.05]);
+        }
         indicator.state.chartObjects.lines.forEach(line => line.decorate(fc.webglStrokeColor(hexToRgba(indicator.options.color))));
       };
 
@@ -926,7 +974,7 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
 
       indicator.remove = () => {
-        indicator.state.chartObjects.lines.forEach(line => removeFromWebglMultiSeries(multi, line));
+        indicator.state.chartObjects.lines.forEach(line => removeFromMulti(multi, line));
       };
     }
 
@@ -964,17 +1012,93 @@ function FirChart(chartContainer, userProvidedData, options) {
     elem.style.marginTop = '0.2em';
     elem.style.cursor = 'pointer';
     elem.style.padding = '5px';
-    elem.addEventListener('click', () => addIndicator(deepCopy(i)));
+    const newIndicator = deepCopy(i);
+    const nameFn = newIndicator.name;
+    newIndicator.name = ind => {
+      return nameFn(ind) + ": ";
+    };
+    elem.addEventListener('click', () => addIndicator(newIndicator));
     indicatorPopupContents.appendChild(elem);
   });
 
   addIndicatorElem.addEventListener('click', showIndicatorPopup);
 
+  // Add drawings
+
+  const svgMulti = fc.seriesSvgMulti();
+  const drawings = [];
+
+  function addLineDrawing(name, x1, y1, x2, y2) {
+
+    const options = { name, color: '#7733dd' };
+    if (name === "") {
+      options.name = "New Line";
+    }
+
+    const nameFn = d => {
+      return d.options.name;
+    };
+
+    const state = { enabled: true };
+    const drawing = { name: nameFn, options, state };
+
+    const slope = (y2 - y1) / (x2.getTime() - x1.getTime());
+    const mainValueFn = bar => {
+      if (bar.date >= x1 && bar.date <= x2) {
+        return y1 + (bar.date.getTime() - x1.getTime()) * slope;
+      }
+    };
+
+    const decorateFn = sel => {
+      sel.attr('stroke', drawing.options.color);
+    };
+    const newDrawing = fc
+      .seriesSvgLine()
+      .xScale(xScale)
+      .yScale(yScale)
+      .crossValue(bar => {
+        if (bar.date >= x1 && bar.date <= x2) {
+          return bar.date;
+        }
+      })
+      .mainValue(mainValueFn)
+      .decorate(decorateFn);
+
+    drawing.chartObject = newDrawing;
+    drawings.push(drawing);
+
+    drawing.disable = () => {
+      newDrawing.mainValue(_ => undefined);
+    };
+
+    drawing.enable = () => {
+      newDrawing.mainValue(mainValueFn);
+    };
+
+    drawing.refreshOptions = () => {
+      newDrawing.decorate(decorateFn);
+    };
+
+    addToMulti(svgMulti, newDrawing);
+
+    addToInfoBox(drawing, () => {
+      drawing.state.enabled = !drawing.state.enabled;
+      if (!drawing.state.enabled) {
+        drawing.disable();
+      } else {
+        drawing.enable();
+      }
+    }, null, () => {
+      removeFromMulti(svgMulti, newDrawing);
+      removeObjectFromArray(drawings, drawing);
+    });
+  }
+
   // Define the base charts
 
   const candlestick = fc.autoBandwidth(fc.seriesWebglCandlestick())
     .decorate(setFillColor(options.colors, 1))
-  const lowLine = fc.seriesSvgLine();
+  const noopsvg = fc.seriesSvgLine();
 
   const volumeValues = data.map(d => d.volume);
   const maxVolume = Math.max(...volumeValues);
@@ -992,13 +1116,13 @@ function FirChart(chartContainer, userProvidedData, options) {
     .yScale(yScale)
     .series([candlestick]);
 
-  function addToWebglMultiSeries(multi, newSeries) {
+  function addToMulti(multi, newSeries) {
     const existingSeries = multi.series();
     multi.series([...existingSeries, newSeries]);
     render();
   }
 
-  function removeFromWebglMultiSeries(multi, seriesToRemove) {
+  function removeFromMulti(multi, seriesToRemove) {
     const newSeries = multi.series();
     removeObjectFromArray(newSeries, seriesToRemove);
     multi.series(newSeries);
@@ -1008,7 +1132,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   const ohlcChart = fc
     .chartCartesian(xScale, yScale)
     .webglPlotArea(webglMulti)
-    .svgPlotArea(lowLine)
+    .svgPlotArea(svgMulti)
     .decorate(sel => {
       sel.enter().call(specialgrid);
       sel.enter()
@@ -1037,7 +1161,7 @@ function FirChart(chartContainer, userProvidedData, options) {
       },
     })
     .webglPlotArea(volume)
-    .svgPlotArea(lowLine)
+    .svgPlotArea(noopsvg)
     .decorate(sel => {
       sel.enter().call(specialgrid);
       sel.enter()
