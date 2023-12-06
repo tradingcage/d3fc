@@ -500,6 +500,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   const modeCursor = "cursor";
   const modePlaceLineInitial = "placeLineInitial";
   const modePlaceLineSecondary = "placeLineSecondary";
+  const modeDragLine = "dragLine";
 
   const state = {
     mode: modeCursor,
@@ -508,6 +509,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     indicators: [],
     additionalPanes: [],
     currentPaneId: '#ohlc-chart',
+    drawings: [],
   };
 
   const priceChangeCallbacks = [];
@@ -519,19 +521,29 @@ function FirChart(chartContainer, userProvidedData, options) {
   function switchMode(newMode) {
     state.mode = newMode;
     if (newMode === modePlaceLineInitial || newMode === modePlaceLineSecondary) {
+      if (state.activeDrag) {
+        state.activeDrag.drawing.stopMoving();
+      }
       d3.select('#ohlc-chart').node().style.cursor = `url("${svgToDataURL(iconoirEditPencilSvg)}") 0 24, pointer`;
       d3.select('#volume-chart').node().style.cursor = 'not-allowed';
       state.additionalPanes.forEach(({ id }) => {
         d3.select(id).node().style.cursor = 'not-allowed';
       });
-    } else {
-      removeActiveLine();
-      d3.select('#ohlc-chart').node().style.cursor = 'default';
-      d3.select('#volume-chart').node().style.cursor = 'default';
-      state.additionalPanes.forEach(({ id }) => {
-        d3.select(id).node().style.cursor = 'default';
-      });
+      return;
     }
+    removeActiveLine();
+
+    if (newMode === modeDragLine) {
+      d3.select('#ohlc-chart').node().style.cursor = 'grabbing';
+      return;
+    }
+
+    removeActiveLine();
+    d3.select('#ohlc-chart').node().style.cursor = 'default';
+    d3.select('#volume-chart').node().style.cursor = 'default';
+    state.additionalPanes.forEach(({ id }) => {
+      d3.select(id).node().style.cursor = 'default';
+    });
   }
 
   // Then we manually create the HTML elements we will need
@@ -803,11 +815,10 @@ function FirChart(chartContainer, userProvidedData, options) {
     .on('zoom', e => {
       mousePos.x = e.sourceEvent.layerX;
       const visibleData = data.filter(d => xScale(d.date) >= 0 && xScale(d.date) <= d3.select('#ohlc-chart').node().clientWidth);
-      const oldDomain = yScale.domain();
       const newDomain = fc.extentLinear().accessors(paddedAccessors())(visibleData);
       yScale.domain(newDomain);
 
-      textDrawings.forEach(({ x, y, elem }) => {
+      state.textDrawings.forEach(({ x, y, elem }) => {
         elem.setAttributeNS(null, "x", xScale(x));
         elem.setAttributeNS(null, "y", yScale(y));
       });
@@ -1071,7 +1082,6 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   const defaultLineColor = '#7733dd';
   const svgMulti = fc.seriesSvgMulti();
-  const drawings = [];
 
   function createActiveLine(x1, y1) {
     const chartObject = fc
@@ -1147,8 +1157,37 @@ function FirChart(chartContainer, userProvidedData, options) {
     state.activeLine = null;
   }
 
-  function addLineDrawing(name, x1, y1, x2, y2) {
+  function startDrag(e, drawing) {
+    switchMode(modeDragLine);
+    state.activeDrag = {
+      initialX: e.layerX,
+      initialY: e.layerY,
+      drawing,
+    };
+  }
 
+  function continueDrag(x, y) {
+    if (state.activeDrag) {
+      let newX = 0;
+      let newY = 0;
+      if (!state.activeDrag.drawing.moreOpts.dragConstrainX) {
+        newX = x - state.activeDrag.initialX;
+      }
+      if (!state.activeDrag.drawing.moreOpts.dragConstrainY) {
+        newY = y - state.activeDrag.initialY;
+      }
+      state.activeDrag.drawing.move(newX, newY);
+    }
+  }
+
+  function stopDrag() {
+    if (state.activeDrag) {
+      state.activeDrag.drawing.stopMoving();
+    }
+    switchMode(modeCursor);
+  }
+
+  function addLineDrawing(name, x1, y1, x2, y2, moreOpts = {}) {
     const options = { name, color: defaultLineColor };
     if (name === "") {
       options.name = "New Line";
@@ -1158,30 +1197,106 @@ function FirChart(chartContainer, userProvidedData, options) {
       return d.options.name;
     };
 
-    const state = { enabled: true };
-    const drawing = { name: nameFn, options, state };
+    const drawingState = { enabled: true, initialCoords: { x1, y1, x2, y2 } };
+    const drawing = { name: nameFn, options, state: drawingState, moreOpts };
 
-    const decorateFn = sel => {
-      sel.attr('stroke', drawing.options.color);
+    const startDragFn = (e) => {
+      if (state.mode === modeDragLine) {
+        stopDrag();
+      } else {
+        startDrag(e, drawing)
+      }
+      render();
     };
-    const mainValueFn = getLineMainValueFn(x1, y1, x2, y2);
+
+    const drawingId = generateRandomString(8);
+    const decorateFn = sel => {
+      sel.attr('id', drawingId);
+      sel.attr('stroke', drawing.options.color);
+      if (moreOpts.draggable) {
+        if (state.mode === modeDragLine) {
+          sel.style("cursor", "grabbing");
+        } else {
+          sel.style("cursor", "grab");
+        }
+        sel.on("click", startDragFn);
+      }
+    };
+
     const newDrawing = fc
       .seriesSvgLine()
       .xScale(xScale)
       .yScale(yScale)
       .crossValue(getLineCrossValueFn(x1, x2))
-      .mainValue(mainValueFn)
+      .mainValue(getLineMainValueFn(x1, y1, x2, y2))
       .decorate(decorateFn);
 
+    if (moreOpts.draggable) {
+      // Create a "shadow" object to make it more easy to click and drag
+      drawing.shadowChartObject = fc
+        .seriesSvgLine()
+        .xScale(xScale)
+        .yScale(yScale)
+        .crossValue(getLineCrossValueFn(x1, x2))
+        .mainValue(getLineMainValueFn(x1, y1, x2, y2))
+        .decorate(sel => {
+          sel.attr('id', drawingId + '-shadow');
+          sel.attr('stroke-width', 15);
+          sel.attr('stroke-opacity', 0);
+          if (state.mode === modeDragLine) {
+            sel.style("cursor", "grabbing");
+          } else {
+            sel.style("cursor", "grab");
+          }
+          sel.on("click", startDragFn);
+        });
+      addToMulti(svgMulti, drawing.shadowChartObject);
+    }
+
+    drawing.move = (x, y) => {
+      drawing.state.inProgressCoords = {
+        x1: xScale.invert(x + xScale(drawing.state.initialCoords.x1)),
+        x2: xScale.invert(x + xScale(drawing.state.initialCoords.x2)),
+        y1: yScale.invert(y + yScale(drawing.state.initialCoords.y1)),
+        y2: yScale.invert(y + yScale(drawing.state.initialCoords.y2)),
+      };
+      const { x1, y1, x2, y2 } = drawing.state.inProgressCoords;
+      [drawing.chartObject, drawing.shadowChartObject]
+        .forEach(d => d
+          .crossValue(getLineCrossValueFn(x1, x2))
+          .mainValue(getLineMainValueFn(x1, y1, x2, y2)));
+      render();
+    };
+
+    drawing.stopMoving = () => {
+      drawing.state.initialCoords = {
+        ...drawing.state.inProgressCoords,
+      };
+      const { x1, y1, x2, y2 } = drawing.state.initialCoords;
+      [drawing.chartObject, drawing.shadowChartObject]
+        .forEach(d => d
+          .crossValue(getLineCrossValueFn(x1, x2))
+          .mainValue(getLineMainValueFn(x1, y1, x2, y2)));
+      render();
+    };
+
+    drawing.id = drawingId;
     drawing.chartObject = newDrawing;
-    drawings.push(drawing);
+    state.drawings.push(drawing);
 
     drawing.disable = () => {
       newDrawing.mainValue(_ => undefined);
+      if (drawing.shadowChartObject) {
+        drawing.shadowChartObject.mainValue(_ => undefined);
+      }
     };
 
     drawing.enable = () => {
-      newDrawing.mainValue(mainValueFn);
+      const { x1, y1, x2, y2 } = drawing.state.initialCoords;
+      newDrawing.mainValue(getLineMainValueFn(x1, y1, x2, y2));
+      if (drawing.shadowChartObject) {
+        drawing.shadowChartObject.mainValue(getLineMainValueFn(x1, y1, x2, y2));
+      }
     };
 
     drawing.refreshOptions = () => {
@@ -1190,20 +1305,25 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     addToMulti(svgMulti, newDrawing);
 
-    addToInfoBox(drawing, () => {
-      drawing.state.enabled = !drawing.state.enabled;
-      if (!drawing.state.enabled) {
-        drawing.disable();
-      } else {
-        drawing.enable();
-      }
-    }, null, () => {
-      removeFromMulti(svgMulti, newDrawing);
-      removeObjectFromArray(drawings, drawing);
-    });
+    if (!moreOpts.hideFromInfoBox) {
+      addToInfoBox(drawing, () => {
+        drawing.state.enabled = !drawing.state.enabled;
+        if (!drawing.state.enabled) {
+          drawing.disable();
+        } else {
+          drawing.enable();
+        }
+      }, null, () => {
+        removeFromMulti(svgMulti, drawing.chartObject);
+        if (drawing.shadowChartObject) {
+          removeFromMulti(svgMulti, drawing.shadowChartObject);
+        }
+        removeObjectFromArray(state.drawings, drawing);
+      });
+    }
   }
 
-  const textDrawings = [];
+  state.textDrawings = [];
 
   function addTextDrawing(x, y, text) {
     const ohlcSvg = document.querySelector('#ohlc-chart .plot-area svg');
@@ -1211,14 +1331,15 @@ function FirChart(chartContainer, userProvidedData, options) {
       const newText = document.createElementNS(svgNS, 'text');
       newText.setAttributeNS(null, "x", xScale(x));
       newText.setAttributeNS(null, "y", yScale(y));
+      newText.style.textAnchor = 'middle';
       newText.innerHTML = text;
       ohlcSvg.appendChild(newText);
       const newTextWrapper = { x, y, elem: newText };
       newTextWrapper.remove = () => {
-        removeObjectFromArray(textDrawings, newTextWrapper);
+        removeObjectFromArray(state.textDrawings, newTextWrapper);
         elem.remove();
       }
-      textDrawings.push(newTextWrapper);
+      state.textDrawings.push(newTextWrapper);
       return newText;
     }
   }
@@ -1268,9 +1389,6 @@ function FirChart(chartContainer, userProvidedData, options) {
         .select('.svg-plot-area')
         .call(attr('border-bottom', '1px solid rgba(0, 0, 0, 0.1)'));
       sel.enter()
-        .selectAll('.plot-area')
-        .call(zoom, xScale);
-      sel.enter()
         .selectAll('.x-axis')
         .call(displayNone);
       sel.enter()
@@ -1279,6 +1397,9 @@ function FirChart(chartContainer, userProvidedData, options) {
       sel.enter()
         .selectAll('svg')
         .call(attr("font-size", "14px"));
+      sel.enter()
+        .selectAll('.plot-area')
+        .call(zoom, xScale);
     });
 
   const volumeChart = fc
@@ -1526,17 +1647,43 @@ function FirChart(chartContainer, userProvidedData, options) {
       updateCrosshair();
       if (state.mode === modePlaceLineSecondary) {
         updateActiveLine(mousePos.x, mousePos.y);
+      } else if (state.mode === modeDragLine) {
+        continueDrag(mousePos.x, mousePos.y);
+      }
+    })
+    .on("mouseleave", e => {
+      if (state.mode === modeDragLine) {
+        stopDrag();
       }
     })
     .on("click", e => {
       if (state.mode === modePlaceLineInitial) {
         createActiveLine(mousePos.x, mousePos.y);
         switchMode(modePlaceLineSecondary);
-      } else if (state.mode === modePlaceLineSecondary) {
+        return;
+      }
+      if (state.mode === modePlaceLineSecondary) {
         const x2 = xScale.invert(mousePos.x);
         const y2 = yScale.invert(mousePos.y);
-        addLineDrawing("", state.activeLine.x1, state.activeLine.y1, x2, y2);
+        addLineDrawing("", state.activeLine.x1, state.activeLine.y1, x2, y2, { draggable: true });
         switchMode(modeCursor);
+        return;
+      }
+
+      for (var i = 0; i < state.drawings.length; i++) {
+        if (e.target.id.split('-')[0] === state.drawings[i].id) {
+          if (state.mode === modeDragLine) {
+            startDrag(e, state.drawings[i]);
+          } else {
+            stopDrag();
+          }
+          return;
+        }
+      }
+
+      if (state.mode === modeDragLine) {
+        stopDrag();
+        return;
       }
     })
     .on("contextmenu", e => {
