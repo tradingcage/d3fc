@@ -87,7 +87,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   // Define the library of indicators
 
   const simpleMovingAverageIndicator = {
-    name: (i) => `Simple Moving Average (${i.options.length})`,
+    name: (i) => `SMA (${i.options.length})`,
     type: "line",
     options: {
       color: "#1111AA",
@@ -99,7 +99,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   };
 
   const exponentialMovingAverageIndicator = {
-    name: (i) => `Exponential Moving Average (${i.options.length})`,
+    name: (i) => `EMA (${i.options.length})`,
     type: "line",
     options: {
       color: "#AA1111",
@@ -111,21 +111,22 @@ function FirChart(chartContainer, userProvidedData, options) {
   };
 
   const averageTrueRangeIndicator = {
-    name: (i) => `Average True Range (${i.options.length})`,
+    name: (i) => `ATR (${i.options.length})`,
     type: "line",
     separatePane: true,
     options: {
       color: "#11AA11",
       length: 14,
     },
-    fn: (bars, options) => {
-      return round2(atr(bars, options.length));
+    fn: (bar, options) => {
+      return round2(atr(bar, options.length));
     },
   };
 
   const keltnerChannelsIndicator = {
-    name: (i) => `Keltner Channels`,
+    name: () => `KC`,
     type: "band",
+    numLines: 3,
     options: {
       color: "#11AA11",
       emaLength: 20,
@@ -145,8 +146,9 @@ function FirChart(chartContainer, userProvidedData, options) {
   };
 
   const bollingerBandsIndicator = {
-    name: (i) => `Bollinger Bands`,
+    name: () => `BB`,
     type: "band",
+    numLines: 3,
     options: {
       color: "#1A1AA1",
       smaLength: 20,
@@ -165,9 +167,10 @@ function FirChart(chartContainer, userProvidedData, options) {
   };
 
   const rsiIndicator = {
-    name: (i) => `Relative Strength Index (${i.options.length})`,
+    name: (i) => `RSI (${i.options.length})`,
     type: "band",
     separatePane: true,
+    numLines: 3,
     options: {
       color: "#A1A11A",
       length: 14,
@@ -237,7 +240,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     for (var i = 0; i < length; i++) {
       result += characters.charAt(Math.floor(Math.random() * charactersLength));
     }
-    return result;
+    return 'x' + result;
   }
 
   function hexToRgba(hex) {
@@ -257,6 +260,89 @@ function FirChart(chartContainer, userProvidedData, options) {
     if (index > -1) {
       array.splice(index, 1);
     }
+  }
+
+  class LocalStorageObject {
+    constructor(storageKey) {
+      this.storageKey = storageKey;
+      this.loadInitialState();
+    }
+
+    loadInitialState() {
+      const storedData = localStorage.getItem(this.storageKey);
+      this.state = storedData ? JSON.parse(storedData) : {};
+    }
+
+    set(key, value) {
+      this.state[key] = value;
+      this.saveState();
+    }
+
+    setProperty(key, prop, value) {
+      let v = this.state[key];
+      if (v == null) {
+        v = {};
+      }
+      v[prop] = value;
+      this.state[key] = v;
+      this.saveState();
+    }
+
+    setObject(key, obj) {
+      const keys = key.split('.');
+      let current = this.state;
+      while (keys.length > 1) {
+        const k = keys.shift();
+        current[k] = current[k] || {};
+        current = current[k];
+      }
+      current[keys[0]] = { ...current[keys[0]], ...obj };
+      this.saveState();
+    }
+
+    get(key) {
+      return this.state[key];
+    }
+
+    getProperty(key, prop) {
+      return this.state[key] && this.state[key][prop];
+    }
+
+    forEach(callback) {
+      for (const key in this.state) {
+        if (this.state.hasOwnProperty(key)) {
+          callback(key, this.state[key]);
+        }
+      }
+    }
+
+    remove(key) {
+      if (key in this.state) {
+        delete this.state[key];
+        this.saveState();
+      }
+    }
+
+    saveState() {
+      localStorage.setItem(this.storageKey, JSON.stringify(this.state));
+    }
+  }
+
+  class DummyObject {
+    set() { }
+    setProperty() { }
+    setObject() { }
+    get() { }
+    getProperty() { }
+    forEach() { }
+    remove() { }
+  }
+
+  let persistedSettings;
+  if (options.persistIndicatorState) {
+    persistedSettings = new LocalStorageObject('indicator-settings');
+  } else {
+    persistedSettings = new DummyObject();
   }
 
   // Imported icons
@@ -370,6 +456,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     var form = document.createElement('form');
     form.style.textAlign = 'left';
     form.style.marginTop = '1em';
+    form.style.fontSize = '1rem';
 
     // Function to gather form data and call the callback
     function gatherDataAndCallCallback() {
@@ -407,14 +494,22 @@ function FirChart(chartContainer, userProvidedData, options) {
         input.name = key;
         input.value = obj[key];
 
+        const styleInput = () => {
+          input.style.padding = '0.1rem 0.2rem 0.1em 0.2em';
+          input.style.border = '1px solid gray';
+          input.style.borderRadius = '3px';
+        };
+
         // Determine the type of the input
         if (typeof obj[key] === 'string') {
           if (obj[key].startsWith('#')) {
             input.type = 'color';
           } else {
+            styleInput();
             input.type = 'text';
           }
         } else if (typeof obj[key] === 'number') {
+          styleInput();
           input.type = 'number';
         }
 
@@ -441,6 +536,7 @@ function FirChart(chartContainer, userProvidedData, options) {
     popupContainer.style.height = '100%';
     popupContainer.style.display = 'none';
     popupContainer.style.userSelect = 'none';
+    popupContainer.style.zIndex = "1";
 
     popupContainer.onclick = function (e) {
       if (e.target === popupContainer) {
@@ -458,7 +554,7 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     const title = document.createElement('div');
     title.innerHTML = titleText;
-    title.style.fontSize = '1.5em';
+    title.style.fontSize = '1.5rem';
     title.style.padding = '5px';
 
     const updateTitle = (newTitle) => {
@@ -493,7 +589,46 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   // Now the rest of the library code
 
-  const data = userProvidedData.map((datum, index, arr) => createWrappedDatum(datum, index, arr));
+  let data = userProvidedData.map((datum, index, arr) => createWrappedDatum(datum, index, arr));
+
+  const isOverlappingAndLater = (d1, d2) => {
+    // Determine whether d2 contains overlap with d1, and is later than d1
+    if (d1.length < 2 || d2.length < 0) {
+      return false;
+    }
+    const d1Last = d1[d1.length - 1].date.getTime();
+    const isLater = d2[d2.length - 1].date.getTime() - d1Last >= 0;
+    if (!isLater) {
+      return false;
+    }
+    for (var i = d2.length - 1; i > 0; i--) {
+      if (d2[i].date.getTime() >= d1Last && d2[i - 1].date.getTime() <= d1Last) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const refreshData = (newData, forceRefresh) => {
+    // special case for when the chart should just move to the right instead of resetting the X axis zoom
+    let shouldMoveRight = false;
+    let step = 0;
+    if (isOverlappingAndLater(data, newData)) {
+      shouldMoveRight = true;
+      step = newData[newData.length - 1].date.getTime() - data[data.length - 1].date.getTime();
+    }
+
+    data = newData.map((datum, index, arr) => createWrappedDatum(datum, index, arr));
+    if (!forceRefresh && shouldMoveRight) {
+      moveChartRight(step);
+    } else {
+      refreshXDomain();
+    }
+    refreshYDomain();
+    refreshVolumeDomain();
+    state.indicators.forEach(({ refreshDomain }) => { if (refreshDomain) refreshDomain() });
+    render();
+  };
 
   // Define stateful objects and their member functions
 
@@ -576,7 +711,9 @@ function FirChart(chartContainer, userProvidedData, options) {
   infoBoxElem.style.padding = "0.4em 0.6em 0.4em 0.4em";
   infoBoxElem.style.backgroundColor = "#eee";
   infoBoxElem.style.userSelect = "none";
-  infoBoxElem.style.width = "24em";
+  infoBoxElem.style.width = "24rem";
+  infoBoxElem.style.fontSize = "0.9rem";
+  infoBoxElem.style.zIndex = "1";
   container.appendChild(infoBoxElem);
 
   const ohlcRowElem = document.createElement("div");
@@ -629,10 +766,13 @@ function FirChart(chartContainer, userProvidedData, options) {
   ohlcExpanderElem.style.flex = "1";
   ohlcExpanderElem.style.cursor = "pointer";
   ohlcExpanderElem.style.textAlign = "right";
+  ohlcExpanderElem.style.display = "flex";
+  ohlcExpanderElem.style.justifyContent = "flex-end";
   ohlcExpanderElem.innerHTML = iconoirNavArrowDownSvg;
   let expanded = true;
-  ohlcExpanderElem.onclick = function () {
+  const ohlcExpanderFn = function () {
     expanded = !expanded;
+    persistedSettings.setProperty('ohlcBox', 'toggled', expanded);
     if (expanded) {
       ohlcExpanderElem.innerHTML = iconoirNavArrowDownSvg;
       infoBoxSubcontainerElem.style.display = "block";
@@ -640,6 +780,11 @@ function FirChart(chartContainer, userProvidedData, options) {
       ohlcExpanderElem.innerHTML = iconoirNavArrowUpSvg;
       infoBoxSubcontainerElem.style.display = "none";
     }
+  };
+  ohlcExpanderElem.onclick = ohlcExpanderFn;
+
+  if (persistedSettings.getProperty('ohlcBox', 'toggled') === false) {
+    ohlcExpanderFn();
   }
 
   ohlcRowElem.appendChild(ohlcBoxElem);
@@ -652,8 +797,13 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   function addToInfoBox(newItem, visibilityToggleFn, valueFn, removeCb) {
     const newItemElem = document.createElement("div")
-    const id = generateRandomString(8);
-    newItemElem.id = id;
+    let id;
+    if (newItem.id) {
+      id = newItem.id;
+    } else {
+      id = generateRandomString(8);
+    };
+    newItemElem.id = id + '-info';
     if (newItem.state) {
       newItem.state.elementId = id;
     }
@@ -682,6 +832,9 @@ function FirChart(chartContainer, userProvidedData, options) {
     const rightSideElems = document.createElement("span");
     rightSideElems.style.flex = "1";
     rightSideElems.style.textAlign = "right";
+    rightSideElems.style.marginLeft = "1em";
+    rightSideElems.style.display = "flex";
+    rightSideElems.style.justifyContent = "flex-end";
     newItemElem.appendChild(rightSideElems);
 
     const toggleElem = document.createElement("span");
@@ -693,17 +846,29 @@ function FirChart(chartContainer, userProvidedData, options) {
     infoBoxSubcontainerElem.insertBefore(newItemElem, infoBoxSubcontainerElem.children[infoBoxSubcontainerElem.children.length - 1])
 
     let toggled = true;
+    const shouldPersist = newItem.iName != null || newItem.id === 'volume';
 
-    toggleElem.addEventListener("click", () => {
+    const doToggle = () => {
       visibilityToggleFn();
       toggled = !toggled;
+      if (shouldPersist) {
+        persistedSettings.setProperty(id, "toggled", toggled);
+      }
       if (!toggled) {
         newItemElem.style.opacity = 0.5;
       } else {
         newItemElem.style.opacity = 1;
       }
+    };
+
+    toggleElem.addEventListener("click", () => {
+      doToggle();
       render();
     });
+
+    if (shouldPersist && persistedSettings.getProperty(id, "toggled") === false) {
+      doToggle();
+    }
 
     let infoBoxItem;
     if (valueFn) {
@@ -721,6 +886,8 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
       infoBoxItems.push(infoBoxItem);
     }
+
+    let removeFn = () => { };
 
     if (removeCb) {
       const removeElem = document.createElement("span");
@@ -748,14 +915,21 @@ function FirChart(chartContainer, userProvidedData, options) {
         showSettingsPopup();
       });
 
-      removeElem.addEventListener("click", () => {
+      removeFn = () => {
         newItemElem.remove();
         settingsPopup.remove();
         if (infoBoxItem) {
           removeObjectFromArray(infoBoxItems, infoBoxItem);
         }
-        removeCb();
-      });
+        if (removeCb) {
+          removeCb();
+        }
+      };
+      removeElem.addEventListener("click", removeFn);
+    }
+
+    return {
+      remove: removeFn,
     }
   }
 
@@ -795,7 +969,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   });
 
   addToInfoBox(
-    { name: () => "Volume" },
+    { name: () => "Volume", id: "volume" },
     () => state.volumeVisible = !state.volumeVisible,
     (bar) => round2(bar.volume));
 
@@ -805,18 +979,94 @@ function FirChart(chartContainer, userProvidedData, options) {
     return [d => d.high + (d.high - d.low) / 3, d => d.low - (d.high - d.low) / 3];
   }
 
-  const xScale = d3.scaleTime().domain(fc.extentDate().accessors([d => d.date])(data));
+  const xScale = fc.scaleDiscontinuous(d3.scaleTime())
+    .domain(fc.extentDate().accessors([d => d.date])(data));
   const yScale = d3.scaleLinear().domain(fc.extentLinear().accessors(paddedAccessors())(data));
+
+  const getSmallestDifference = (vals) => {
+    if (vals.length < 2) {
+      return 0;
+    }
+    let smallestDifference = Number.MAX_SAFE_INTEGER;
+    for (var i = 1; i < vals.length; i++) {
+      if (Math.abs(vals[i] - vals[i - 1]) < smallestDifference) {
+        smallestDifference = Math.abs(vals[i] - vals[i - 1]);
+      }
+    }
+    return smallestDifference;
+  };
+
+  const getStep = () =>
+    getSmallestDifference(data.map(x => x.date.getTime()));
+
+  const refreshXScaleDiscontinuity = () => {
+    if (data.length > 1) {
+      let step = getStep();
+
+      const ranges = [];
+      for (var i = 1; i < data.length; i++) {
+        if (data[i].date.getTime() - data[i - 1].date.getTime() > step) {
+          ranges.push([data[i - 1].date, new Date(data[i].date.getTime() - step)]);
+        }
+      }
+      xScale.discontinuityProvider(fc.discontinuityRange(...ranges));
+    }
+  };
+
+  const moveChartRight = (step) => {
+    const oldDomain = xScale.domain();
+    xScale.domain([
+      new Date(oldDomain[0].getTime() + step),
+      new Date(oldDomain[1].getTime() + step),
+    ]);
+    refreshXScaleDiscontinuity();
+  }
+
+  const refreshXDomain = () => {
+    if (data.length === 0) {
+      return;
+    }
+    let last = new Date(data[data.length - 1].date.getTime() + getStep());
+    let first = data[0].date;
+    if (data.length > 100) {
+      first = data[data.length - 100].date;
+    }
+    refreshXScaleDiscontinuity();
+    xScale.domain([first, last]);
+  };
+
+  refreshXDomain();
+
+  const refreshYDomain = () => {
+    if (data.length === 0) {
+      return;
+    }
+    const visibleData = data.filter(d => xScale(d.date) >= 0 && xScale(d.date) <= d3.select('#ohlc-chart').node().clientWidth);
+    let min = Math.min(...visibleData.map(d => d.low));
+    let max = Math.max(...visibleData.map(d => d.high));
+    state.indicators.forEach(i => {
+      if (!i.separatePane && i.state.enabled) {
+        let vals = visibleData.map(i.fn).filter(x => !isNaN(x));
+        if (Math.min(...vals) < min) {
+          min = Math.min(...vals);
+        }
+        if (Math.max(...vals) > max) {
+          max = Math.max(...vals);
+        }
+      }
+    });
+    max += (max - min) / 10;
+    min -= (max - min) / 10;
+    yScale.domain([min, max]);
+  };
 
   const zoom = fc
     .zoom()
     .duration(0)
-    .scaleExtent([.2, 5])
+    .scaleExtent([.3, 5])
     .on('zoom', e => {
       mousePos.x = e.sourceEvent.layerX;
-      const visibleData = data.filter(d => xScale(d.date) >= 0 && xScale(d.date) <= d3.select('#ohlc-chart').node().clientWidth);
-      const newDomain = fc.extentLinear().accessors(paddedAccessors())(visibleData);
-      yScale.domain(newDomain);
+      refreshYDomain();
 
       state.textDrawings.forEach(({ x, y, elem }) => {
         elem.setAttributeNS(null, "x", xScale(x));
@@ -825,6 +1075,10 @@ function FirChart(chartContainer, userProvidedData, options) {
 
       render();
     });
+
+  const setScaleExtent = (extent) => {
+    zoom.scaleExtent(extent);
+  };
 
   // Initial crosshair setup since this is used by the indicators
 
@@ -858,11 +1112,19 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   function addIndicator(indicator) {
     const { type, options, fn } = indicator;
-    indicator.fn = (bar) => fn(bar, indicator.options);
+    indicator.fn = (bar) => { if (bar) { return fn(bar, indicator.options); } };
     indicator.state = {
       enabled: true,
       chartObjects: {},
     };
+
+    let id = indicator.id;
+    if (!id) {
+      id = generateRandomString(8);
+    }
+
+    persistedSettings.setProperty(id, "id", id);
+    persistedSettings.setProperty(id, "iName", indicator.iName);
 
     let multi = webglMulti;
 
@@ -871,7 +1133,7 @@ function FirChart(chartContainer, userProvidedData, options) {
       d3.select("#x-label").remove();
 
       indicator.state.newPaneElem = document.createElement("div");
-      indicator.state.newPaneElem.id = generateRandomString(8);
+      indicator.state.newPaneElem.id = id;
       indicator.state.newPaneElem.style.flex = 1;
       container.appendChild(indicator.state.newPaneElem);
 
@@ -879,15 +1141,20 @@ function FirChart(chartContainer, userProvidedData, options) {
 
       multi = fc.seriesWebglMulti();
 
-      let newPaneYDomain;
-      if (type === "line") {
-        const values = data.map(bar => indicator.fn(bar)).filter(v => !isNaN(v));
-        newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
-      } else if (type === "band") {
-        const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
-        newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
+      newPaneYScale = d3.scaleLinear();
+
+      indicator.refreshDomain = () => {
+        let newPaneYDomain;
+        if (type === "line") {
+          const values = data.map(bar => indicator.fn(bar)).filter(v => !isNaN(v));
+          newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
+        } else if (type === "band") {
+          const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
+          newPaneYDomain = [Math.min(...values) * .95, Math.max(...values) * 1.05];
+        }
+        newPaneYScale.domain(newPaneYDomain);
       }
-      newPaneYScale = d3.scaleLinear().domain(newPaneYDomain);
+      indicator.refreshDomain();
 
       const newPaneIndex = state.additionalPanes.length;
 
@@ -928,9 +1195,6 @@ function FirChart(chartContainer, userProvidedData, options) {
             mousePos.y = e.layerY;
 
             const limitY = newPaneYScale.range()[0];
-            if (Math.abs(e.clientY - otherPanesHeight - e.layerY) > 20) {
-              mousePos.y = limitY;
-            }
             if (e.layerY > limitY) {
               mousePos.y = limitY;
             }
@@ -965,6 +1229,8 @@ function FirChart(chartContainer, userProvidedData, options) {
       }
     };
 
+    let refreshOptions;
+
     if (type === "line") {
       const line = fc
         .seriesWebglLine()
@@ -975,7 +1241,7 @@ function FirChart(chartContainer, userProvidedData, options) {
         .decorate(fc.webglStrokeColor(hexToRgba(options.color)));
       indicator.state.chartObjects.line = line;
 
-      indicator.refreshOptions = () => {
+      refreshOptions = () => {
         if (indicator.separatePane) {
           const values = data.map(bar => indicator.fn(bar)).filter(v => !isNaN(v));
           newPaneYScale.domain([Math.min(...values) * .95, Math.max(...values) * 1.05]);
@@ -1000,19 +1266,24 @@ function FirChart(chartContainer, userProvidedData, options) {
     } else if (type === "band") {
 
       const lines = [];
-      const numLines = indicator.fn(data[data.length - 1]).length;
+      const numLines = indicator.numLines;
       for (let i = 0; i < numLines; i++) {
         const line = fc
           .seriesWebglLine()
           .crossValue(d => d.date)
-          .mainValue(bar => indicator.fn(bar)[i])
+          .mainValue(bar => {
+            const val = indicator.fn(bar);
+            if (val) {
+              return val[i];
+            }
+          })
           .decorate(fc.webglStrokeColor(hexToRgba(options.color)))
         lines.push(line);
         addToMulti(multi, line);
       }
       indicator.state.chartObjects.lines = lines;
 
-      indicator.refreshOptions = () => {
+      refreshOptions = () => {
         if (indicator.separatePane) {
           const values = data.map(bar => indicator.fn(bar)).flat().filter(v => !isNaN(v));
           newPaneYScale.domain([Math.min(...values) * .95, Math.max(...values) * 1.05]);
@@ -1025,7 +1296,12 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
 
       indicator.enable = () => {
-        indicator.state.chartObjects.lines.forEach((line, i) => line.mainValue(bar => indicator.fn(bar)[i]));
+        indicator.state.chartObjects.lines.forEach((line, i) => line.mainValue(bar => {
+          const val = indicator.fn(bar);
+          if (val) {
+            return val[i];
+          }
+        }));
       };
 
       indicator.remove = () => {
@@ -1033,10 +1309,16 @@ function FirChart(chartContainer, userProvidedData, options) {
       };
     }
 
+    indicator.refreshOptions = () => {
+      persistedSettings.setObject(indicator.id + ".options", indicator.options);
+      refreshOptions();
+    };
+
     state.indicators.push(indicator);
 
     addToInfoBox(indicator, () => {
       indicator.state.enabled = !indicator.state.enabled;
+      persistedSettings.setProperty(indicator.id, "toggled", indicator.state.enabled);
       if (!indicator.state.enabled) {
         indicator.disable();
         indicator.disableSeparatePane();
@@ -1044,9 +1326,11 @@ function FirChart(chartContainer, userProvidedData, options) {
         indicator.enable();
         indicator.enableSeparatePane();
       }
+      refreshYDomain();
     },
       (bar) => indicator.fn(bar),
       () => {
+        persistedSettings.remove(indicator.id);
         removeObjectFromArray(state.indicators, indicator);
         indicator.removeSeparatePane();
         indicator.remove();
@@ -1067,12 +1351,16 @@ function FirChart(chartContainer, userProvidedData, options) {
     elem.style.marginTop = '0.2em';
     elem.style.cursor = 'pointer';
     elem.style.padding = '5px';
-    const newIndicator = deepCopy(i);
-    const nameFn = newIndicator.name;
-    newIndicator.name = ind => {
-      return nameFn(ind) + ": ";
-    };
-    elem.addEventListener('click', () => addIndicator(newIndicator));
+    elem.style.fontSize = '1rem';
+    elem.addEventListener('click', () => {
+      const newIndicator = deepCopy(i);
+      newIndicator.iName = iName;
+      const nameFn = newIndicator.name;
+      newIndicator.name = ind => {
+        return nameFn(ind) + ": ";
+      };
+      addIndicator(newIndicator);
+    });
     indicatorPopupContents.appendChild(elem);
   });
 
@@ -1188,7 +1476,7 @@ function FirChart(chartContainer, userProvidedData, options) {
   }
 
   function addLineDrawing(name, x1, y1, x2, y2, moreOpts = {}) {
-    const options = { name, color: defaultLineColor };
+    const options = { name, color: moreOpts.color ?? defaultLineColor };
     if (name === "") {
       options.name = "New Line";
     }
@@ -1305,22 +1593,30 @@ function FirChart(chartContainer, userProvidedData, options) {
 
     addToMulti(svgMulti, newDrawing);
 
+    const removeDrawing = () => {
+      removeFromMulti(svgMulti, drawing.chartObject);
+      if (drawing.shadowChartObject) {
+        removeFromMulti(svgMulti, drawing.shadowChartObject);
+      }
+      removeObjectFromArray(state.drawings, drawing);
+    };
+
+    let removeFn = removeDrawing;
     if (!moreOpts.hideFromInfoBox) {
-      addToInfoBox(drawing, () => {
+      const ret = addToInfoBox(drawing, () => {
         drawing.state.enabled = !drawing.state.enabled;
         if (!drawing.state.enabled) {
           drawing.disable();
         } else {
           drawing.enable();
         }
-      }, null, () => {
-        removeFromMulti(svgMulti, drawing.chartObject);
-        if (drawing.shadowChartObject) {
-          removeFromMulti(svgMulti, drawing.shadowChartObject);
-        }
-        removeObjectFromArray(state.drawings, drawing);
-      });
+      }, null, removeDrawing);
+      removeFn = ret.remove;
     }
+
+    return {
+      remove: removeFn,
+    };
   }
 
   state.textDrawings = [];
@@ -1350,10 +1646,15 @@ function FirChart(chartContainer, userProvidedData, options) {
     .decorate(setFillColor(options.colors, 1))
   const noopsvg = fc.seriesSvgLine();
 
-  const volumeValues = data.map(d => d.volume);
-  const maxVolume = Math.max(...volumeValues);
-  const minVolume = Math.min(...volumeValues);
-  const volumeScale = d3.scaleLinear().domain([minVolume / 1.3, maxVolume]);
+  const volumeScale = d3.scaleLinear();
+  const refreshVolumeDomain = () => {
+    const volumeValues = data.map(d => d.volume);
+    const maxVolume = Math.max(...volumeValues);
+    const minVolume = Math.min(...volumeValues);
+    volumeScale.domain([minVolume / 1.3, maxVolume]);
+  };
+
+  refreshVolumeDomain();
 
   const volume = fc.autoBandwidth(fc.seriesWebglBar())
     .crossValue(d => d.date)
@@ -1468,6 +1769,10 @@ function FirChart(chartContainer, userProvidedData, options) {
   }
 
   function updateCrosshair() {
+    if (data.length === 0) {
+      return;
+    }
+
     const xValue = xScale.invert(mousePos.x);
     const nearest = data.reduce((prev, curr) => {
       return (Math.abs(curr.date - xValue) < Math.abs(prev.date - xValue) ? curr : prev);
@@ -1588,12 +1893,8 @@ function FirChart(chartContainer, userProvidedData, options) {
   const updateMouseX = e => {
     mousePos.x = e.layerX;
 
-    // layerX gets a weirdly small value when you mouse over the y axis labels
+    // TODO: figure out why layerX gets a weirdly small value when you mouse over the y axis labels
     const limitX = xScale.range()[1];
-    if (Math.abs(e.layerX - e.clientX) > 50) {
-      mousePos.x = limitX;
-    }
-    // but then if you go too far to the side of the y axis labels, layerX gets big again
     if (e.layerX > limitX) {
       mousePos.x = limitX;
     }
@@ -1704,9 +2005,6 @@ function FirChart(chartContainer, userProvidedData, options) {
       mousePos.y = e.layerY;
 
       const limitY = volumeScale.range()[0];
-      if (Math.abs(e.clientY - ohlcHeight - e.layerY) > 20) {
-        mousePos.y = limitY;
-      }
       if (e.layerY > limitY) {
         mousePos.y = limitY;
       }
@@ -1718,7 +2016,12 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   // To close it out, define the charts and render them
 
-  priceChangeCallbacks.forEach(fn => fn(data[data.length - 1]));
+  priceChangeCallbacks.forEach(fn => {
+    if (data.length === 0) {
+      return;
+    }
+    fn(data[data.length - 1]);
+  });
 
   function render() {
     d3.select('#ohlc-chart')
@@ -1744,8 +2047,34 @@ function FirChart(chartContainer, userProvidedData, options) {
 
   render();
 
+  // Add persisted indicators from the previous load
+  // This goes at the end because it relies on state initialized above
+  persistedSettings.forEach((id, state) => {
+    if (id === 'volume' || id === 'ohlcBox') {
+      return;
+    }
+    const i = indicatorsByName[state.iName];
+    const newIndicator = deepCopy(i);
+    newIndicator.iName = state.iName;
+    const nameFn = newIndicator.name;
+    newIndicator.name = ind => {
+      return nameFn(ind) + ": ";
+    };
+    if (state.options) {
+      for (const key in state.options) {
+        if (state.options.hasOwnProperty(key)) {
+          newIndicator.options[key] = state.options[key];
+        }
+      }
+    }
+    newIndicator.id = id;
+    addIndicator(newIndicator);
+  });
+
   return {
     addTextDrawing,
     addLineDrawing,
+    refreshData,
+    setScaleExtent
   };
 }
