@@ -36,15 +36,12 @@ export default () => {
             yScale,
             previousTransform
         } = node[symbol];
-        // DISABLED BY LINCOLN
-        // I change the domain in the zoom event in the stock chart
-        // and this code makes it not work, so it's commented out for now
         if (
-            !domainsEqual(previousXScale, xScale)
-            // || !domainsEqual(previousYScale, yScale)
+            !domainsEqual(previousXScale, xScale) ||
+            !domainsEqual(previousYScale, yScale)
         ) {
             originalXScale = xScale?.copy();
-            // originalYScale = yScale?.copy();
+            originalYScale = yScale?.copy();
             updatedTransform = subtract(transform, previousTransform);
         }
         if (xScale != null) {
